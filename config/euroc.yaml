@@ -1,5 +1,9 @@
 %YAML:1.0
 
+# Modify test.InitVIOTmpPath and bagfile to the correct path
+# Path to save tmp files/results
+test.InitVIOTmpPath: "/home/jp/opensourcecode/ORB_SLAM2/tmp/"
+
 ## For good initialization (no movement at the beginning for some bag)
 test.DiscardTime: 0
 bagfile: "/home/jp/TimeV1_01_easy.bag"
@@ -22,11 +26,12 @@ bagfile: "/home/jp/TimeV1_01_easy.bag"
 #bagfile: "/media/jp/JingpangPassport/3dataset/EuRoC-VIO/un_restamped/V1_03_difficult.bag"
 #bagfile: "/media/jp/JingpangPassport/3dataset/EuRoC-VIO/un_restamped/V2_03_difficult.bag"
 
+
+#######################################
+
 imutopic: "/imu0"
 imagetopic: "/cam0/image_raw"
 
-# Path to save tmp files/results
-test.InitVIOTmpPath: "/home/jp/opensourcecode/ORB_SLAM2/tmp/"
 
 # Timestamp shift. Timage = Timu + image_delay
 Camera.delaytoimu: 0

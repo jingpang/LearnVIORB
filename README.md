@@ -3,6 +3,8 @@ An implementation of [Visual Inertial ORBSLAM](https://arxiv.org/abs/1610.05949)
 
 No Loop Closure. Not bug-free. Not real-time. Just try the basic ideas of Visual Inertial SLAM in above paper.
 
+Build with `build.sh`. Tested on EuRoc ROS bag data. Modify the path in `config/euroc.yaml`.
+
 Below is the primary README of ORBSLAM2.
 
 # ORB-SLAM2
