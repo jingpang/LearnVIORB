@@ -1,7 +1,7 @@
 
 An implementation of [Visual Inertial ORBSLAM](https://arxiv.org/abs/1610.05949) based on [ORB-SLAM2](https://github.com/raulmur/ORB_SLAM2)
 
-No Loop Closure. Not bug-free. Not real-time. Just to try the basic ideas of Visual Inertial SLAM in above paper.
+No Loop Closure. Not bug-free. Not real-time. Just try the basic ideas of Visual Inertial SLAM in above paper.
 
 Below is the primary README of ORBSLAM2.
 
