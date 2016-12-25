@@ -84,16 +84,16 @@ void LoopClosing::Run()
             // Detect loop candidates and check covisibility consistency
             if(DetectLoop())
             {
-                // Disable loop closure for the moment
-                // However KeyFrameDB should be updated for relocalization
-
-//               // Compute similarity transformation [sR|t]
-//               // In the stereo/RGBD case s=1
-//               if(ComputeSim3())
-//               {
-//                   // Perform loop fusion and pose graph optimization
-//                   CorrectLoop();
-//               }
+                if(mpLocalMapper->GetVINSInited())
+                {
+                    // Compute similarity transformation [sR|t]
+                    // In the stereo/RGBD case s=1
+                    if(ComputeSim3())
+                    {
+                        // Perform loop fusion and pose graph optimization
+                        CorrectLoop();
+                    }
+                }
             }
         }
 
@@ -671,7 +671,8 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
     cout << "Starting Global Bundle Adjustment" << endl;
 
     int idx =  mnFullBAIdx;
-    Optimizer::GlobalBundleAdjustemnt(mpMap,10,&mbStopGBA,nLoopKF,false);
+    //Optimizer::GlobalBundleAdjustemnt(mpMap,10,&mbStopGBA,nLoopKF,false);
+    Optimizer::GlobalBundleAdjustmentNavState(mpMap,mpLocalMapper->GetGravityVec(),10,&mbStopGBA,nLoopKF,false);
 
     // Update all MapPoints and KeyFrames
     // Local Mapping was active during BA, that means that there might be new keyframes
@@ -694,6 +695,8 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
                 usleep(1000);
             }
 
+            cv::Mat cvTbc = ConfigParam::GetMatTbc();
+
             // Get Map Mutex
             unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
 
@@ -714,12 +717,27 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
                         pChild->mTcwGBA = Tchildc*pKF->mTcwGBA;//*Tcorc*pKF->mTcwGBA;
                         pChild->mnBAGlobalForKF=nLoopKF;
 
+                        // Set NavStateGBA and correct the P/V/R
+                        pChild->mNavStateGBA = pChild->GetNavState();
+                        cv::Mat TwbGBA = Converter::toCvMatInverse(cvTbc*pChild->mTcwGBA);
+                        Matrix3d RwbGBA = Converter::toMatrix3d(TwbGBA.rowRange(0,3).colRange(0,3));
+                        Vector3d PwbGBA = Converter::toVector3d(TwbGBA.rowRange(0,3).col(3));
+                        Matrix3d Rw1 = pChild->mNavStateGBA.Get_RotMatrix();
+                        Vector3d Vw1 = pChild->mNavStateGBA.Get_V();
+                        Vector3d Vw2 = RwbGBA*Rw1.transpose()*Vw1;   // bV1 = bV2 ==> Rwb1^T*wV1 = Rwb2^T*wV2 ==> wV2 = Rwb2*Rwb1^T*wV1
+                        pChild->mNavStateGBA.Set_Pos(PwbGBA);
+                        pChild->mNavStateGBA.Set_Rot(RwbGBA);
+                        pChild->mNavStateGBA.Set_Vel(Vw2);
                     }
                     lpKFtoCheck.push_back(pChild);
                 }
 
                 pKF->mTcwBefGBA = pKF->GetPose();
-                pKF->SetPose(pKF->mTcwGBA);
+                //pKF->SetPose(pKF->mTcwGBA);
+                pKF->mNavStateBefGBA = pKF->GetNavState();
+                pKF->SetNavState(pKF->mNavStateGBA);
+                pKF->UpdatePoseFromNS(cvTbc);
+
                 lpKFtoCheck.pop_front();
             }
 

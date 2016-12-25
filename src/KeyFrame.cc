@@ -32,6 +32,22 @@ long unsigned int KeyFrame::nNextId=0;
 //-------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------
 
+void KeyFrame::UpdateNavStatePVRFromTcw(const cv::Mat &Tcw,const cv::Mat &Tbc)
+{
+    unique_lock<mutex> lock(mMutexNavState);
+    cv::Mat Twb = Converter::toCvMatInverse(Tbc*Tcw);
+    Matrix3d Rwb = Converter::toMatrix3d(Twb.rowRange(0,3).colRange(0,3));
+    Vector3d Pwb = Converter::toVector3d(Twb.rowRange(0,3).col(3));
+
+    Matrix3d Rw1 = mNavState.Get_RotMatrix();
+    Vector3d Vw1 = mNavState.Get_V();
+    Vector3d Vw2 = Rwb*Rw1.transpose()*Vw1;   // bV1 = bV2 ==> Rwb1^T*wV1 = Rwb2^T*wV2 ==> wV2 = Rwb2*Rwb1^T*wV1
+
+    mNavState.Set_Pos(Pwb);
+    mNavState.Set_Rot(Rwb);
+    mNavState.Set_Vel(Vw2);
+}
+
 void KeyFrame::SetInitialNavStateAndBias(const NavState& ns)
 {
     unique_lock<mutex> lock(mMutexNavState);
@@ -738,7 +754,7 @@ void KeyFrame::SetBadFlag()
             mpMap->EraseKeyFrame(this);
         }
         mpKeyFrameDB->erase(this);
-        cerr<<"KeyFrame "<<mnId<<" is already bad. Set bad return"<<endl;
+        //cerr<<"KeyFrame "<<mnId<<" is already bad. Set bad return"<<endl;
         return;
     }
 

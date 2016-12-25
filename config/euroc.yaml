@@ -2,11 +2,11 @@
 
 # Modify test.InitVIOTmpPath and bagfile to the correct path
 # Path to save tmp files/results
-test.InitVIOTmpPath: "/home/jp/opensourcecode/ORB_SLAM2/tmp/"
+test.InitVIOTmpPath: "/home/jp/opensourcecode/OpenSourceORBVIO/tmp/"
 
 ## For good initialization (no movement at the beginning for some bag)
 test.DiscardTime: 0
-bagfile: "/home/jp/TimeV1_01_easy.bag"
+#bagfile: "/home/jp/TimeV1_01_easy.bag"
 ## bad: V1_03_difficult(wrong), V2_03_difficult(lost)
 ## not so good(cant close loop without loopclosure): V1_02_medium, V2_02_medium, MH_05_difficult
 ## good: V1_01_easy, V2_01_easy, MH_01_easy, MH_02_easy, MH_03_medium, MH_04_difficult
@@ -18,9 +18,9 @@ bagfile: "/home/jp/TimeV1_01_easy.bag"
 #bagfile: "/media/jp/JingpangPassport/3dataset/EuRoC-VIO/un_restamped/MH_05_difficult.bag"
 #bagfile: "/media/jp/JingpangPassport/3dataset/EuRoC-VIO/un_restamped/MH_02_easy.bag"
 #bagfile: "/media/jp/JingpangPassport/3dataset/EuRoC-VIO/un_restamped/MH_01_easy.bag"
-#bagfile: "/media/jp/JingpangPassport/3dataset/EuRoC-VIO/un_restamped/V2_02_medium.bag"
+bagfile: "/media/jp/JingpangPassport/3dataset/EuRoC-VIO/un_restamped/V2_02_medium.bag"
 #bagfile: "/media/jp/JingpangPassport/3dataset/EuRoC-VIO/un_restamped/V2_01_easy.bag"
-#bagfile: "/media/jp/JingpangPassport/3dataset/EuRoC-VIO/un_restamped/V1_02_medium.bag"	
+#bagfile: "/media/jp/JingpangPassport/3dataset/EuRoC-VIO/un_restamped/V1_02_medium.bag"
 #bagfile: "/media/jp/JingpangPassport/3dataset/EuRoC-VIO/un_restamped/V1_01_easy.bag"
 
 #bagfile: "/media/jp/JingpangPassport/3dataset/EuRoC-VIO/un_restamped/V1_03_difficult.bag"

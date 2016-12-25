@@ -37,6 +37,8 @@ class LoopClosing;
 class Optimizer
 {
 public:
+    void static GlobalBundleAdjustmentNavState(Map* pMap, const cv::Mat& gw, int nIterations, bool* pbStopFlag, const unsigned long nLoopKF, const bool bRobust);
+
     int static PoseOptimization(Frame *pFrame, KeyFrame* pLastKF, const IMUPreintegrator& imupreint, const cv::Mat& gw, const bool& bComputeMarg=false);
     int static PoseOptimization(Frame *pFrame, Frame* pLastFrame, const IMUPreintegrator& imupreint, const cv::Mat& gw, const bool& bComputeMarg=false);
 

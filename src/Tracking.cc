@@ -237,9 +237,6 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated)
 
         // Test log
         if(mpLocalMapper->GetFirstVINSInited() && !bMapUpdated) cerr<<"1-FirstVinsInit, but not bMapUpdated. shouldn't"<<endl;
-        KeyFrame* pMapUpdateKF = mpLocalMapper->GetMapUpdateKF();// Updated KF by Local Mapping. Should be the same as mpLastKeyFrame
-        if(pMapUpdateKF->mnId != mpLastKeyFrame->mnId && mCurrentFrame.mnId != mnLastRelocFrameId + 20)
-            cerr<<"1 need to modify this part. LastKF in Tracking maybe not UpdateKF in Localmapping? lastKF id:"<<mpLastKeyFrame->mnId<<", MapUpdateKF id:"<<pMapUpdateKF->mnId<<endl;
         if(mCurrentFrame.GetNavState().Get_dBias_Acc().norm() > 1e-6) cerr<<"TrackLocalMapWithIMU current Frame dBias acc not zero"<<endl;
         if(mCurrentFrame.GetNavState().Get_dBias_Gyr().norm() > 1e-6) cerr<<"TrackLocalMapWithIMU current Frame dBias gyr not zero"<<endl;
 
@@ -309,9 +306,6 @@ void Tracking::PredictNavStateByIMU(bool bMapUpdated)
 
         // Test log
         // Updated KF by Local Mapping. Should be the same as mpLastKeyFrame
-        KeyFrame* pMapUpdateKF = mpLocalMapper->GetMapUpdateKF();
-        if(pMapUpdateKF->mnId != mpLastKeyFrame->mnId && mCurrentFrame.mnId != mnLastRelocFrameId + 20)
-            cerr<<"2 need to modify this part. LastKF in Tracking maybe not UpdateKF in Localmapping? lastKF id:"<<mpLastKeyFrame->mnId<<", MapUpdateKF id:"<<pMapUpdateKF->mnId<<endl;
         if(mCurrentFrame.GetNavState().Get_dBias_Acc().norm() > 1e-6) cerr<<"PredictNavStateByIMU1 current Frame dBias acc not zero"<<endl;
         if(mCurrentFrame.GetNavState().Get_dBias_Gyr().norm() > 1e-6) cerr<<"PredictNavStateByIMU1 current Frame dBias gyr not zero"<<endl;
     }
@@ -368,11 +362,6 @@ bool Tracking::TrackWithIMU(bool bMapUpdated)
     if(mpLocalMapper->GetFirstVINSInited() || bMapUpdated)
     {
         Optimizer::PoseOptimization(&mCurrentFrame,mpLastKeyFrame,mIMUPreIntInTrack,mpLocalMapper->GetGravityVec(),false);
-
-        //Test log
-        KeyFrame* pMapUpdateKF = mpLocalMapper->GetMapUpdateKF();
-        if(pMapUpdateKF->mnId != mpLastKeyFrame->mnId && mCurrentFrame.mnId != mnLastRelocFrameId + 20)
-            cerr<<"3 need to modify this part. LastKF in Tracking maybe not UpdateKF in Localmapping? lastKF id:"<<mpLastKeyFrame->mnId<<", MapUpdateKF id:"<<pMapUpdateKF->mnId<<endl;
     }
     else
     {

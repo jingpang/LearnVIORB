@@ -59,6 +59,7 @@ public:
 
     const IMUPreintegrator & GetIMUPreInt(void);
 
+    void UpdateNavStatePVRFromTcw(const cv::Mat &Tcw,const cv::Mat &Tbc);
     void UpdatePoseFromNS(const cv::Mat &Tbc);
     void UpdateNavState(const IMUPreintegrator& imupreint, const Vector3d& gw);
     void SetNavState(const NavState& ns);
@@ -73,6 +74,10 @@ public:
     void SetNavStateDeltaBa(const Vector3d &dba);
 
     void SetInitialNavStateAndBias(const NavState& ns);
+
+    // Variables used by loop closing
+    NavState mNavStateGBA;       //mTcwGBA
+    NavState mNavStateBefGBA;    //mTcwBefGBA
 
 protected:
 

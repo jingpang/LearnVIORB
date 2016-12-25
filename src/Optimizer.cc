@@ -47,6 +47,274 @@ namespace ORB_SLAM2
 //-------------------------------------------------------------------------------------------
 //-------------------------------------------------------------------------------------------
 
+void Optimizer::GlobalBundleAdjustmentNavState(Map* pMap, const cv::Mat& gw, int nIterations, bool* pbStopFlag, const unsigned long nLoopKF, const bool bRobust)
+{
+    vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
+    vector<MapPoint*> vpMP = pMap->GetAllMapPoints();
+
+    // Extrinsics
+    Matrix4d Tbc = ConfigParam::GetEigTbc();
+    Matrix3d Rbc = Tbc.topLeftCorner(3,3);
+    Vector3d Pbc = Tbc.topRightCorner(3,1);
+    // Gravity vector in world frame
+    Vector3d GravityVec = Converter::toVector3d(gw);
+
+    vector<bool> vbNotIncludedMP;
+    vbNotIncludedMP.resize(vpMP.size());
+
+    g2o::SparseOptimizer optimizer;
+    g2o::BlockSolverX::LinearSolverType * linearSolver;
+
+    linearSolver = new g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>();
+
+    g2o::BlockSolverX * solver_ptr = new g2o::BlockSolverX(linearSolver);
+
+    g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
+    optimizer.setAlgorithm(solver);
+
+    if(pbStopFlag)
+        optimizer.setForceStopFlag(pbStopFlag);
+
+    long unsigned int maxKFid = 0;
+
+    // Set KeyFrame vertices
+    for(size_t i=0; i<vpKFs.size(); i++)
+    {
+        KeyFrame* pKF = vpKFs[i];
+        if(pKF->isBad())
+            continue;
+
+        // PVR
+        g2o::VertexNavStatePVR * vNSPVR = new g2o::VertexNavStatePVR();
+        vNSPVR->setEstimate(pKF->GetNavState());
+        vNSPVR->setId(pKF->mnId*2);
+        vNSPVR->setFixed(pKF->mnId==0);
+        optimizer.addVertex(vNSPVR);
+        // Bias
+        g2o::VertexNavStateBias * vNSBias = new g2o::VertexNavStateBias();
+        vNSBias->setEstimate(pKF->GetNavState());
+        vNSBias->setId(pKF->mnId*2+1);
+        vNSBias->setFixed(pKF->mnId==0);
+        optimizer.addVertex(vNSBias);
+
+        if(pKF->mnId*2+1>maxKFid)
+            maxKFid=pKF->mnId*2+1;
+    }
+
+    // Add NavState PVR/Bias edges
+    const float thHuberNavStatePVR = sqrt(21.666);
+    const float thHuberNavStateBias = sqrt(16.812);
+    // Inverse covariance of bias random walk
+    Matrix<double,6,6> InvCovBgaRW = Matrix<double,6,6>::Identity();
+    InvCovBgaRW.topLeftCorner(3,3) = Matrix3d::Identity()/IMUData::getGyrBiasRW2();       // Gyroscope bias random walk, covariance INVERSE
+    InvCovBgaRW.bottomRightCorner(3,3) = Matrix3d::Identity()/IMUData::getAccBiasRW2();   // Accelerometer bias random walk, covariance INVERSE
+
+    for(size_t i=0; i<vpKFs.size(); i++)
+    {
+        KeyFrame* pKF1 = vpKFs[i];
+        if(pKF1->isBad())
+        {
+            cout<<"pKF is bad in gBA, id "<<pKF1->mnId<<endl;   //Debug log
+            continue;
+        }
+
+        KeyFrame* pKF0 = pKF1->GetPrevKeyFrame();
+        if(!pKF0)
+        {
+            if(pKF1->mnId!=0) cerr<<"Previous KeyFrame is NULL?"<<endl;  //Test log
+            continue;
+        }
+
+        // PVR edge
+        {
+            g2o::EdgeNavStatePVR * epvr = new g2o::EdgeNavStatePVR();
+            epvr->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(2*pKF0->mnId)));
+            epvr->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(2*pKF1->mnId)));
+            epvr->setVertex(2, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(2*pKF0->mnId+1)));
+            epvr->setMeasurement(pKF1->GetIMUPreInt());
+
+            Matrix9d InvCovPVR = pKF1->GetIMUPreInt().getCovPVPhi().inverse();
+            epvr->setInformation(InvCovPVR);
+            epvr->SetParams(GravityVec);
+
+            if(bRobust)
+            {
+                g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+                epvr->setRobustKernel(rk);
+                rk->setDelta(thHuberNavStatePVR);
+            }
+
+            optimizer.addEdge(epvr);
+        }
+        // Bias edge
+        {
+            g2o::EdgeNavStateBias * ebias = new g2o::EdgeNavStateBias();
+            ebias->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(2*pKF0->mnId+1)));
+            ebias->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(2*pKF1->mnId+1)));
+            ebias->setMeasurement(pKF1->GetIMUPreInt());
+
+            ebias->setInformation(InvCovBgaRW);
+
+            if(bRobust)
+            {
+                g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+                ebias->setRobustKernel(rk);
+                rk->setDelta(thHuberNavStateBias);
+            }
+
+            optimizer.addEdge(ebias);
+        }
+
+    }
+
+    const float thHuber2D = sqrt(5.99);
+
+    // Set MapPoint vertices
+    for(size_t i=0; i<vpMP.size(); i++)
+    {
+        MapPoint* pMP = vpMP[i];
+        if(pMP->isBad())
+            continue;
+        g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();
+        vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
+        const int id = pMP->mnId+maxKFid+1;
+        vPoint->setId(id);
+        vPoint->setMarginalized(true);
+        optimizer.addVertex(vPoint);
+
+       const map<KeyFrame*,size_t> observations = pMP->GetObservations();
+
+        int nEdges = 0;
+        //SET EDGES
+        for(map<KeyFrame*,size_t>::const_iterator mit=observations.begin(); mit!=observations.end(); mit++)
+        {
+
+            KeyFrame* pKF = mit->first;
+            if(pKF->isBad() || 2*pKF->mnId>maxKFid)
+                continue;
+
+            nEdges++;
+
+            const cv::KeyPoint &kpUn = pKF->mvKeysUn[mit->second];
+
+            if(pKF->mvuRight[mit->second]<0)
+            {
+                Eigen::Matrix<double,2,1> obs;
+                obs << kpUn.pt.x, kpUn.pt.y;
+
+                g2o::EdgeNavStatePVRPointXYZ* e = new g2o::EdgeNavStatePVRPointXYZ();
+
+                e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
+                e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(2*pKF->mnId)));
+                e->setMeasurement(obs);
+                const float &invSigma2 = pKF->mvInvLevelSigma2[kpUn.octave];
+                e->setInformation(Eigen::Matrix2d::Identity()*invSigma2);
+
+                if(bRobust)
+                {
+                    g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
+                    e->setRobustKernel(rk);
+                    rk->setDelta(thHuber2D);
+                }
+
+                e->SetParams(pKF->fx,pKF->fy,pKF->cx,pKF->cy,Rbc,Pbc);
+
+                optimizer.addEdge(e);
+            }
+            else
+            {
+                cerr<<"Stereo not supported"<<endl;
+            }
+        }
+
+        if(nEdges==0)
+        {
+            optimizer.removeVertex(vPoint);
+            vbNotIncludedMP[i]=true;
+        }
+        else
+        {
+            vbNotIncludedMP[i]=false;
+        }
+    }
+
+    // Optimize!
+    optimizer.initializeOptimization();
+    optimizer.optimize(nIterations);
+
+    // Recover optimized data
+
+    //Keyframes
+    for(size_t i=0; i<vpKFs.size(); i++)
+    {
+        KeyFrame* pKF = vpKFs[i];
+        if(pKF->isBad())
+            continue;
+        //g2o::VertexSE3Expmap* vSE3 = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(pKF->mnId));
+        //g2o::SE3Quat SE3quat = vSE3->estimate();
+        g2o::VertexNavStatePVR* vNSPVR = static_cast<g2o::VertexNavStatePVR*>(optimizer.vertex(2*pKF->mnId));
+        g2o::VertexNavStateBias* vNSBias = static_cast<g2o::VertexNavStateBias*>(optimizer.vertex(2*pKF->mnId+1));
+        const NavState& nspvr = vNSPVR->estimate();
+        const NavState& nsbias = vNSBias->estimate();
+        NavState ns_recov = nspvr;
+        ns_recov.Set_DeltaBiasGyr(nsbias.Get_dBias_Gyr());
+        ns_recov.Set_DeltaBiasAcc(nsbias.Get_dBias_Acc());
+
+        if(nLoopKF==0)
+        {
+            //pKF->SetPose(Converter::toCvMat(SE3quat));
+            pKF->SetNavState(ns_recov);
+            pKF->UpdatePoseFromNS(ConfigParam::GetMatTbc());
+        }
+        else
+        {
+            pKF->mNavStateGBA = ns_recov;
+
+            pKF->mTcwGBA.create(4,4,CV_32F);
+            //Converter::toCvMat(SE3quat).copyTo(pKF->mTcwGBA);
+            cv::Mat Twb_ = cv::Mat::eye(4,4,CV_32F);
+            Converter::toCvMat(pKF->mNavStateGBA.Get_RotMatrix()).copyTo(Twb_.rowRange(0,3).colRange(0,3));
+            Converter::toCvMat(pKF->mNavStateGBA.Get_P()).copyTo(Twb_.rowRange(0,3).col(3));
+            cv::Mat Twc_ = Twb_*ConfigParam::GetMatTbc();
+            pKF->mTcwGBA = Converter::toCvMatInverse(Twc_);
+
+            pKF->mnBAGlobalForKF = nLoopKF;
+        }
+
+//        //Debug log
+//        cv::Mat tTwb1 = pKF->GetPoseInverse()*ConfigParam::GetMatT_cb();
+//        if((Converter::toVector3d(tTwb1.rowRange(0,3).col(3))-pKF->GetNavState().Get_P()).norm()>1e-6)
+//            cout<<"in gBA, Twc*Tcb != NavState for GBA KFs, id "<<pKF->mnId<<": "<<tTwb1.rowRange(0,3).col(3).t()<<"/"<<pKF->GetNavState().Get_P().transpose()<<endl;
+
+    }
+
+    //Points
+    for(size_t i=0; i<vpMP.size(); i++)
+    {
+        if(vbNotIncludedMP[i])
+            continue;
+
+        MapPoint* pMP = vpMP[i];
+
+        if(pMP->isBad())
+            continue;
+        g2o::VertexSBAPointXYZ* vPoint = static_cast<g2o::VertexSBAPointXYZ*>(optimizer.vertex(pMP->mnId+maxKFid+1));
+
+        if(nLoopKF==0)
+        {
+            pMP->SetWorldPos(Converter::toCvMat(vPoint->estimate()));
+            pMP->UpdateNormalAndDepth();
+        }
+        else
+        {
+            pMP->mPosGBA.create(3,1,CV_32F);
+            Converter::toCvMat(vPoint->estimate()).copyTo(pMP->mPosGBA);
+            pMP->mnBAGlobalForKF = nLoopKF;
+        }
+    }
+
+}
+
 int Optimizer::PoseOptimization(Frame *pFrame, Frame* pLastFrame, const IMUPreintegrator& imupreint, const cv::Mat& gw, const bool& bComputeMarg)
 {
     // Extrinsics
@@ -1040,7 +1308,7 @@ void Optimizer::LocalBundleAdjustmentNavState(KeyFrame *pCurKF, const std::list<
     vector<pair<KeyFrame*,MapPoint*> > vToErase;
     vToErase.reserve(vpEdgesMono.size());
 
-    double PosePointchi2=0, PosePosechi2=0, BiasBiaschi2=0;
+    double PosePointchi2=0;
     // Check inlier observations
     for(size_t i=0, iend=vpEdgesMono.size(); i<iend;i++)
     {
@@ -2610,6 +2878,8 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
     unique_lock<mutex> lock(pMap->mMutexMapUpdate);
 
+    cv::Mat Tbc = ConfigParam::GetMatTbc();
+
     // SE3 Pose Recovering. Sim3:[sR t;0 1] -> SE3:[R t/s;0 1]
     for(size_t i=0;i<vpKFs.size();i++)
     {
@@ -2629,6 +2899,9 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
         cv::Mat Tiw = Converter::toCvSE3(eigR,eigt);
 
         pKFi->SetPose(Tiw);
+
+        // Update P/V/R in NavState
+        pKFi->UpdateNavStatePVRFromTcw(Tiw,Tbc);
     }
 
     // Correct points. Transform to "non-optimized" reference keyframe pose and transform back with optimized pose
