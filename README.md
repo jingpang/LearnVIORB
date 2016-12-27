@@ -5,7 +5,7 @@ Not bug-free. Not real-time. Just try the basic ideas of Visual Inertial SLAM in
 
 Build with `build.sh`. Modify the path in `config/euroc.yaml`. 
 
-Tested on [EuRoc](http://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets) ROS bag data with ROS launch file `Examples/ROS/ORB_VIO/launch/testeuroc.launch`.
+Tested on [EuRoc](http://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets) ROS bag data with ROS launch file `Examples/ROS/ORB_VIO/launch/testeuroc.launch`. Files in `pyplotscripts` can be used to visualize some results.
 
 Below is the primary README of ORBSLAM2.
 

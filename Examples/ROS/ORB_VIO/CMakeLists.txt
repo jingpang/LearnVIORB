@@ -39,6 +39,8 @@ ${PROJECT_SOURCE_DIR}
 ${PROJECT_SOURCE_DIR}/../../../
 ${PROJECT_SOURCE_DIR}/../../../src
 ${PROJECT_SOURCE_DIR}/../../../include
+${PROJECT_SOURCE_DIR}/../../../Thirdparty/g2o
+${PROJECT_SOURCE_DIR}/../../../Thirdparty/DBoW2
 ${Pangolin_INCLUDE_DIRS}
 )
 
