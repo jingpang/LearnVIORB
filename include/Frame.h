@@ -35,7 +35,6 @@
 #include <IMU/imudata.h>
 #include <IMU/NavState.h>
 #include <IMU/IMUPreintegrator.h>
-#include "g2o/core/sparse_block_matrix.h"
 
 namespace ORB_SLAM2
 {
