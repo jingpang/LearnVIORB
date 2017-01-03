@@ -1066,7 +1066,7 @@ void Optimizer::LocalBundleAdjustmentNavState(KeyFrame *pCurKF, const std::list<
         }
 
         if(idKF+1>maxKFid)
-            maxKFid=idKF;
+            maxKFid=idKF+1;
         // Test log
         if(pKFi->mnId == 0) cerr<<"pKFi->mnId == 0, shouldn't in LocalBA of NavState"<<endl;
     }
