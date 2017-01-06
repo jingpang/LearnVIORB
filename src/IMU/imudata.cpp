@@ -21,11 +21,11 @@ namespace ORB_SLAM2
  */
 
 // *1e3/*1e2 chosen by experiments
-double IMUData::_gyrBiasRw2 = 2.0e-5*2.0e-5*0.005*1e3;  //2e-12*1e3
-double IMUData::_accBiasRw2 = 3.0e-3*3.0e-3*0.005*1e2;  //4.5e-8*1e2
+double IMUData::_gyrBiasRw2 = 2.0e-5*2.0e-5*10;  //2e-12*1e3
+double IMUData::_accBiasRw2 = 5.0e-3*5.0e-3*10;  //4.5e-8*1e2
 
-Matrix3d IMUData::_gyrMeasCov = Matrix3d::Identity()*1.7e-4*1.7e-4/0.005*10;       // sigma_g * sigma_g / dt, ~6e-6*10
-Matrix3d IMUData::_accMeasCov = Matrix3d::Identity()*2.0e-3*2.0e-3/0.005*10;       // sigma_a * sigma_a / dt, ~8e-4*10
+Matrix3d IMUData::_gyrMeasCov = Matrix3d::Identity()*1.7e-4*1.7e-4/0.005*100;       // sigma_g * sigma_g / dt, ~6e-6*10
+Matrix3d IMUData::_accMeasCov = Matrix3d::Identity()*2.0e-3*2.0e-3/0.005*100;       // sigma_a * sigma_a / dt, ~8e-4*10
 
 // covariance of bias random walk
 Matrix3d IMUData::_gyrBiasRWCov = Matrix3d::Identity()*_gyrBiasRw2;     // sigma_gw * sigma_gw * dt, ~2e-12

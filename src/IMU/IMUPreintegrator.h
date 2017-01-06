@@ -73,11 +73,6 @@ public:
         return _cov_P_V_Phi;
     }
 
-    inline Matrix<double,6,6> getInitP() const
-    {
-        return _initP;
-    }
-
     inline double getDeltaTime() const {
         return _delta_time;
     }
@@ -204,8 +199,6 @@ private:
     Matrix9d _cov_P_V_Phi;
 
     double _delta_time;
-
-    Eigen::Matrix<double,6,6> _initP;
 
 };
 

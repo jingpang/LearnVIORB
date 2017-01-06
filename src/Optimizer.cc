@@ -153,7 +153,7 @@ void Optimizer::GlobalBundleAdjustmentNavState(Map* pMap, const cv::Mat& gw, int
             ebias->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(2*pKF1->mnId+1)));
             ebias->setMeasurement(pKF1->GetIMUPreInt());
 
-            ebias->setInformation(InvCovBgaRW);
+            ebias->setInformation(InvCovBgaRW/pKF1->GetIMUPreInt().getDeltaTime());
 
             if(bRobust)
             {
@@ -422,7 +422,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, Frame* pLastFrame, const IMUPrein
         Matrix<double,6,6> InvCovBgaRW = Matrix<double,6,6>::Identity();
         InvCovBgaRW.topLeftCorner(3,3) = Matrix3d::Identity()/IMUData::getGyrBiasRW2();       // Gyroscope bias random walk, covariance INVERSE
         InvCovBgaRW.bottomRightCorner(3,3) = Matrix3d::Identity()/IMUData::getAccBiasRW2();   // Accelerometer bias random walk, covariance INVERSE
-        eNSBias->setInformation(InvCovBgaRW);
+        eNSBias->setInformation(InvCovBgaRW/imupreint.getDeltaTime());
 
         const float thHuberNavStateBias = sqrt(16.812);
         g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
@@ -777,7 +777,7 @@ int Optimizer::PoseOptimization(Frame *pFrame, KeyFrame* pLastKF, const IMUPrein
         Matrix<double,6,6> InvCovBgaRW = Matrix<double,6,6>::Identity();
         InvCovBgaRW.topLeftCorner(3,3) = Matrix3d::Identity()/IMUData::getGyrBiasRW2();       // Gyroscope bias random walk, covariance INVERSE
         InvCovBgaRW.bottomRightCorner(3,3) = Matrix3d::Identity()/IMUData::getAccBiasRW2();   // Accelerometer bias random walk, covariance INVERSE
-        eNSBias->setInformation(InvCovBgaRW);
+        eNSBias->setInformation(InvCovBgaRW/imupreint.getDeltaTime());
 
         const float thHuberNavStateBias = sqrt(16.812);
         g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
@@ -1145,7 +1145,7 @@ void Optimizer::LocalBundleAdjustmentNavState(KeyFrame *pCurKF, const std::list<
             ebias->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(2*pKF1->mnId+1)));
             ebias->setMeasurement(pKF1->GetIMUPreInt());
 
-            ebias->setInformation(InvCovBgaRW);
+            ebias->setInformation(InvCovBgaRW/pKF1->GetIMUPreInt().getDeltaTime());
 
             g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
             ebias->setRobustKernel(rk);
@@ -1276,27 +1276,27 @@ void Optimizer::LocalBundleAdjustmentNavState(KeyFrame *pCurKF, const std::list<
         e->setRobustKernel(0);
     }
 
-    // Check inlier observations
-    for(size_t i=0, iend=vpEdgesNavStatePVR.size(); i<iend; i++)
-    {
-        g2o::EdgeNavStatePVR* e = vpEdgesNavStatePVR[i];
-        if(e->chi2()>21.666)
-        {
-            e->setLevel(1);
-            //cout<<"1 PVRedge "<<i<<", chi2 "<<e->chi2()<<". ";
-        }
-        e->setRobustKernel(0);
-    }
-    for(size_t i=0, iend=vpEdgesNavStateBias.size(); i<iend; i++)
-    {
-        g2o::EdgeNavStateBias* e = vpEdgesNavStateBias[i];
-        if(e->chi2()>16.812)
-        {
-            e->setLevel(1);
-            //cout<<"1 Bias edge "<<i<<", chi2 "<<e->chi2()<<". ";
-        }
-        e->setRobustKernel(0);
-    }
+//    // Check inlier observations
+//    for(size_t i=0, iend=vpEdgesNavStatePVR.size(); i<iend; i++)
+//    {
+//        g2o::EdgeNavStatePVR* e = vpEdgesNavStatePVR[i];
+//        if(e->chi2()>21.666)
+//        {
+//            //e->setLevel(1);
+//            //cout<<"1 PVRedge "<<i<<", chi2 "<<e->chi2()<<". ";
+//        }
+//        //e->setRobustKernel(0);
+//    }
+//    for(size_t i=0, iend=vpEdgesNavStateBias.size(); i<iend; i++)
+//    {
+//        g2o::EdgeNavStateBias* e = vpEdgesNavStateBias[i];
+//        if(e->chi2()>16.812)
+//        {
+//            //e->setLevel(1);
+//            //cout<<"1 Bias edge "<<i<<", chi2 "<<e->chi2()<<". ";
+//        }
+//        //e->setRobustKernel(0);
+//    }
 
     // Optimize again without the outliers
     optimizer.initializeOptimization(0);
@@ -1327,29 +1327,25 @@ void Optimizer::LocalBundleAdjustmentNavState(KeyFrame *pCurKF, const std::list<
         PosePointchi2 += e->chi2();
     }
 
-    // Debug log
-    // Check inlier observations
-    for(size_t i=0, iend=vpEdgesNavStatePVR.size(); i<iend; i++)
-    {
-        g2o::EdgeNavStatePVR* e = vpEdgesNavStatePVR[i];
-        if(e->chi2()>21.666)
-        {
-            e->setLevel(1);
-            //cout<<"2 PVRedge "<<i<<", chi2 "<<e->chi2()<<". ";
-        }
-        e->setRobustKernel(0);
-    }
-    for(size_t i=0, iend=vpEdgesNavStateBias.size(); i<iend; i++)
-    {
-        g2o::EdgeNavStateBias* e = vpEdgesNavStateBias[i];
-        if(e->chi2()>16.812)
-        {
-            e->setLevel(1);
-            //cout<<"2 Bias edge "<<i<<", chi2 "<<e->chi2()<<". ";
-        }
-        e->setRobustKernel(0);
-    }
-    //cout<<"pose-point chi2: "<<PosePointchi2<<", pose-pose chi2: "<<PosePosechi2<<endl;
+//    // Debug log
+//    // Check inlier observations
+//    for(size_t i=0, iend=vpEdgesNavStatePVR.size(); i<iend; i++)
+//    {
+//        g2o::EdgeNavStatePVR* e = vpEdgesNavStatePVR[i];
+//        if(e->chi2()>21.666)
+//        {
+//            //cout<<"2 PVRedge "<<i<<", chi2 "<<e->chi2()<<". ";
+//        }
+//    }
+//    for(size_t i=0, iend=vpEdgesNavStateBias.size(); i<iend; i++)
+//    {
+//        g2o::EdgeNavStateBias* e = vpEdgesNavStateBias[i];
+//        if(e->chi2()>16.812)
+//        {
+//            //cout<<"2 Bias edge "<<i<<", chi2 "<<e->chi2()<<". ";
+//        }
+//    }
+//    //cout<<"pose-point chi2: "<<PosePointchi2<<", pose-pose chi2: "<<PosePosechi2<<endl;
 
     // Get Map Mutex
     unique_lock<mutex> lock(pMap->mMutexMapUpdate);

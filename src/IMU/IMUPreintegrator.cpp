@@ -13,8 +13,7 @@ IMUPreintegrator::IMUPreintegrator(const IMUPreintegrator& pre):
     _J_V_Biasa(pre._J_V_Biasa),
     _J_R_Biasg(pre._J_R_Biasg),
     _cov_P_V_Phi(pre._cov_P_V_Phi),
-    _delta_time(pre._delta_time),
-    _initP(pre._initP)
+    _delta_time(pre._delta_time)
 {
 
 }
@@ -33,7 +32,6 @@ IMUPreintegrator::IMUPreintegrator(const IMUPreintegrator& pre):
 //    _cov_P_V_Phi = pre._cov_P_V_Phi;
 //    _delta_time = pre._delta_time;
 
-//    _initP = pre._initP;
 //}
 
 IMUPreintegrator::IMUPreintegrator()
@@ -54,8 +52,6 @@ IMUPreintegrator::IMUPreintegrator()
     _cov_P_V_Phi.setZero();
 
     _delta_time = 0;
-
-    _initP.setZero();
 }
 
 void IMUPreintegrator::reset()
@@ -77,7 +73,6 @@ void IMUPreintegrator::reset()
 
     _delta_time = 0;
 
-    _initP.setZero();
 }
 
 // incrementally update 1)delta measurements, 2)jacobians, 3)covariance matrix
@@ -143,14 +138,6 @@ void IMUPreintegrator::update(const Vector3d& omega, const Vector3d& acc, const 
     // delta time
     _delta_time += dt;
 
-    Matrix<double,6,6> preP = _initP;
-    Matrix<double,6,6> Ft = Matrix<double,6,6>::Zero();
-    Ft.topRightCorner(3,3) = Matrix3d::Identity();
-    Matrix<double,6,6> I6x6 = Matrix<double,6,6>::Identity();
-    Matrix<double,6,3> Gt = Matrix<double,6,3>::Zero();
-    Gt.block<3,3>(3,0) = _delta_R;
-    _initP = (I6x6+dt*Ft) * preP * (I6x6+dt*Ft).transpose()
-           + dt*dt* Gt*IMUData::getAccMeasCov()*Gt.transpose();
 }
 
 }
