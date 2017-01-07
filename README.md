@@ -7,9 +7,9 @@ Build with `build.sh`. Modify the path in `config/euroc.yaml`.
 
 Tested on [EuRoc](http://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets) ROS bag data with ROS launch file `Examples/ROS/ORB_VIO/launch/testeuroc.launch`. Files in `pyplotscripts` can be used to visualize some results.
 
-Tested on my own sensor setup: UI-1221-LE with 3DM-GX3-25, see [video on YouKu](v.youku.com/v_show/id_XMTkxMjgzMzMwOA).
+Tested on sensors: [UI-1221-LE](https://en.ids-imaging.com/store/ui-1221le.html) and [3DM-GX3-25](http://www.microstrain.com/inertial/3dm-gx3-25), see [video on YouKu](http://v.youku.com/v_show/id_XMTkxMjgzMzMwOA).
 
-Please contact jp08-at-foxmail-dot-com for more details.
+Please contact `jp08-at-foxmail-dot-com` for more details.
 
 Below is the primary README of ORBSLAM2.
 
