@@ -7,7 +7,13 @@ Build with `build.sh`. Modify the path in `config/euroc.yaml`.
 
 Tested on [EuRoc](http://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets) ROS bag data with ROS launch file `Examples/ROS/ORB_VIO/launch/testeuroc.launch`. Files in `pyplotscripts` can be used to visualize some results.
 
+Tested on my own sensor setup: UI-1221-LE with 3DM-GX3-25, see [video on YouKu](v.youku.com/v_show/id_XMTkxMjgzMzMwOA).
+
+Please contact jp08-at-foxmail-dot-com for more details.
+
 Below is the primary README of ORBSLAM2.
+
+*****
 
 # ORB-SLAM2
 **Authors:** [Raul Mur-Artal](http://webdiis.unizar.es/~raulmur/), [Juan D. Tardos](http://webdiis.unizar.es/~jdtardos/), [J. M. M. Montiel](http://webdiis.unizar.es/~josemari/) and [Dorian Galvez-Lopez](http://doriangalvez.com/) ([DBoW2](https://github.com/dorian3d/DBoW2))
