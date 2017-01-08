@@ -418,12 +418,14 @@ void EdgeNavStatePriorPVRBias::linearizeOplus()
     //const VertexNavStateBias* vBias = static_cast<const VertexNavStateBias*>(_vertices[1]);
     const NavState& nsPVRest = vPVR->estimate();
 
+    _jacobianOplusXi = Matrix<double,15,9>::Zero();
     _jacobianOplusXi.block<3,3>(0,0) = - nsPVRest.Get_RotMatrix();
     _jacobianOplusXi.block<3,3>(3,3) = - Matrix3d::Identity();
     _jacobianOplusXi.block<3,3>(6,6) = Sophus::SO3::JacobianRInv( _error.segment<3>(6) );
 
-    _jacobianOplusXj.block<3,3>(0,0) = - Matrix3d::Identity();
-    _jacobianOplusXj.block<3,3>(3,3) = - Matrix3d::Identity();
+    _jacobianOplusXj = Matrix<double,15,6>::Zero();
+    _jacobianOplusXj.block<3,3>(9,0) = - Matrix3d::Identity();
+    _jacobianOplusXj.block<3,3>(12,3) = - Matrix3d::Identity();
 
 }
 
