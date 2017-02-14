@@ -103,13 +103,6 @@ void IMUPreintegrator::update(const Vector3d& omega, const Vector3d& acc, const 
         Ca*IMUData::getAccMeasCov()*Ca.transpose();
 
 
-    // delta measurements, position/velocity/rotation(matrix)
-    // update P first, then V, then R. because P's update need V&R's previous state
-    _delta_P += _delta_V*dt + 0.5*_delta_R*acc*dt2;    // P_k+1 = P_k + V_k*dt + R_k*a_k*dt*dt/2
-    _delta_V += _delta_R*acc*dt;
-    _delta_R = normalizeRotationM(_delta_R*dR);  // normalize rotation, in case of numerical error accumulation
-
-
     // jacobian of delta measurements w.r.t bias of gyro/acc
     // update P first, then V, then R
     _J_P_Biasa += _J_V_Biasa*dt - 0.5*_delta_R*dt2;
@@ -117,6 +110,13 @@ void IMUPreintegrator::update(const Vector3d& omega, const Vector3d& acc, const 
     _J_V_Biasa += -_delta_R*dt;
     _J_V_Biasg += -_delta_R*skew(acc)*_J_R_Biasg*dt;
     _J_R_Biasg = dR.transpose()*_J_R_Biasg - Jr*dt;
+
+    // delta measurements, position/velocity/rotation(matrix)
+    // update P first, then V, then R. because P's update need V&R's previous state
+    _delta_P += _delta_V*dt + 0.5*_delta_R*acc*dt2;    // P_k+1 = P_k + V_k*dt + R_k*a_k*dt*dt/2
+    _delta_V += _delta_R*acc*dt;
+    _delta_R = normalizeRotationM(_delta_R*dR);  // normalize rotation, in case of numerical error accumulation
+
 
 //    // noise covariance propagation of delta measurements
 //    // err_k+1 = A*err_k + B*err_gyro + C*err_acc
