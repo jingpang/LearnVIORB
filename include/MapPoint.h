@@ -43,6 +43,7 @@ public:
     MapPoint(const cv::Mat &Pos,  Map* pMap, Frame* pFrame, const int &idxF);
 
     void SetWorldPos(const cv::Mat &Pos);
+    void UpdateScale(float scale);
     cv::Mat GetWorldPos();
 
     cv::Mat GetNormal();

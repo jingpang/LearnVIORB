@@ -44,7 +44,8 @@ void Map::UpdateScale(const double &scale)
     for(std::set<MapPoint*>::iterator sit=mspMapPoints.begin(), send=mspMapPoints.end(); sit!=send; sit++)
     {
         MapPoint* pMP = *sit;
-        pMP->SetWorldPos(pMP->GetWorldPos()*scale);
+        //pMP->SetWorldPos(pMP->GetWorldPos()*scale);
+        pMP->UpdateScale(scale);
     }
     std::cout<<std::endl<<"... Map scale updated ..."<<std::endl<<std::endl;
 }

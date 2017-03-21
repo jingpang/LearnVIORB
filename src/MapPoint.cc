@@ -70,6 +70,13 @@ MapPoint::MapPoint(const cv::Mat &Pos, Map* pMap, Frame* pFrame, const int &idxF
     mnId=nNextId++;
 }
 
+void MapPoint::UpdateScale(float scale)
+{
+    SetWorldPos(GetWorldPos()*scale);
+    mfMaxDistance *= scale;
+    mfMinDistance *= scale;
+}
+
 void MapPoint::SetWorldPos(const cv::Mat &Pos)
 {
     unique_lock<mutex> lock2(mGlobalMutex);
