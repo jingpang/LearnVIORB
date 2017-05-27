@@ -1,7 +1,18 @@
+Realtime branch. There're still some bugs, debugging.
+
+Modification: 
+1. Add real-time code. 
+2. Change optimization vertex usage, from PVR to PR-V as in paper. 
+3. Try inverse depth parameterization in LocalBA, can be changed back to PR-V version in the code of LocalMapping.cc.
+4. Some other related changes.
+
+May 28
+
+*****
 
 An implementation of [Visual Inertial ORBSLAM](https://arxiv.org/abs/1610.05949) based on [ORB-SLAM2](https://github.com/raulmur/ORB_SLAM2)
 
-Not bug-free. Not real-time. Just try the basic ideas of Visual Inertial SLAM in above paper. Welcome to improve it together!
+Not bug-free. Just try the basic ideas of Visual Inertial SLAM in above paper. Welcome to improve it together!
 
 Build with `build.sh`. Modify the path in `config/euroc.yaml`. 
 
