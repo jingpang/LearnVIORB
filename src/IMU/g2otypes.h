@@ -16,6 +16,334 @@ namespace g2o
 
 using namespace ORB_SLAM2;
 
+/*
+ * IDP, (I)nverse (d)epth vertex for a map(p)oint
+ */
+class VertexIDP : public BaseVertex<1, double>
+{
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    VertexIDP() : BaseVertex<1, double>(){}
+    bool read(std::istream &is) {return true;}
+    bool write(std::ostream &os) const {return true;}
+
+    virtual void setToOriginImpl() {
+        _estimate = 1;
+    }
+
+    virtual void oplusImpl(const double* update_) {
+        _estimate += update_[0];
+        if(_estimate < 1e-6) _estimate = 1e-6;  //todo
+    }
+
+};
+
+/*
+ * Edge of reprojection error in one frame.
+ * Vertex 0: mappoint IDP
+ * Veretx 1: reference KF PR
+ * Vertex 2: current frame PR
+ * Vertex 3: extrinsic pose Tbc(or Tcb)
+ */
+class EdgePRIDP : public BaseMultiEdge<2, Vector2d>
+{
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    EdgePRIDP() : BaseMultiEdge<2, Vector2d>() {
+        resize(4);
+    }
+    bool read(std::istream& is) {return true;}
+    bool write(std::ostream& os) const {return true;}
+    void computeError();
+    virtual void linearizeOplus();
+
+    void SetParams(double x, double y, double fx_, double fy_, double cx_, double cy_) {
+        refnormxy[0] = x; refnormxy[1] = y;
+        fx = fx_; fy = fy_; cx = cx_; cy = cy_;
+    }
+
+    inline Vector2d project2d(const Vector3d& v) const {
+        Vector2d res;
+        res(0) = v(0)/v(2);
+        res(1) = v(1)/v(2);
+        return res;
+    }
+    Vector2d cam_project(const Vector3d & trans_xyz) const {
+        Vector2d proj = project2d(trans_xyz);
+        Vector2d res;
+        res[0] = proj[0]*fx + cx;
+        res[1] = proj[1]*fy + cy;
+        return res;
+    }
+    bool isDepthPositive() {
+        Vector3d Pc = computePc();
+        return Pc(2)>0.01;
+    }
+
+    Vector3d computePc() ;
+
+protected:
+    // [x,y] in normalized image plane in reference KF
+    double refnormxy[2];
+    double fx,fy,cx,cy;
+};
+
+class VertexNavStatePR : public BaseVertex<6, NavState>
+{
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+    VertexNavStatePR() : BaseVertex<6, NavState>(){}
+
+    bool read(std::istream& is) {return true;}
+
+    bool write(std::ostream& os) const {return true;}
+
+    virtual void setToOriginImpl() {
+      _estimate = NavState();
+    }
+
+    virtual void oplusImpl(const double* update_) {
+        Eigen::Map<const Vector6d> update(update_);
+        _estimate.IncSmallPR(update);
+    }
+};
+
+class VertexNavStateV : public BaseVertex<3, NavState>
+{
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+    VertexNavStateV() : BaseVertex<3, NavState>(){}
+
+    bool read(std::istream& is) {return true;}
+
+    bool write(std::ostream& os) const {return true;}
+
+    virtual void setToOriginImpl() {
+      _estimate = NavState();
+    }
+
+    virtual void oplusImpl(const double* update_) {
+        Eigen::Map<const Vector3d> update(update_);
+        _estimate.IncSmallV(update);
+    }
+};
+
+/*
+ * Connect 5 vertex: PR0, V0, bias0 and PR1, V1
+ * Vertex 0: PR0
+ * Vertex 1: PR1
+ * Vertex 2: V0
+ * Vertex 3: V1
+ * Vertex 4: bias0
+ *
+ * Error order: error_P, error_R, error_V
+ *      different from PVR edge
+ *
+ */
+class EdgeNavStatePRV : public BaseMultiEdge<9, IMUPreintegrator>
+{
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+    EdgeNavStatePRV() : BaseMultiEdge<9, IMUPreintegrator>() {
+        resize(5);
+    }
+
+    bool read(std::istream& is) {return true;}
+
+    bool write(std::ostream& os) const {return true;}
+
+    void computeError();
+
+    virtual void linearizeOplus();
+
+    void SetParams(const Vector3d& gw) {
+        GravityVec = gw;
+    }
+
+protected:
+    // Gravity vector in 'world' frame
+    Vector3d GravityVec;
+};
+
+class EdgeNavStatePRPointXYZ : public BaseBinaryEdge<2, Vector2d, VertexSBAPointXYZ, VertexNavStatePR>
+{
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+    EdgeNavStatePRPointXYZ() : BaseBinaryEdge<2, Vector2d, VertexSBAPointXYZ, VertexNavStatePR>() {}
+
+    bool read(std::istream& is) {return true;}
+
+    bool write(std::ostream& os) const {return true;}
+
+    void computeError() {
+        Vector3d Pc = computePc();
+        Vector2d obs(_measurement);
+
+        _error = obs - cam_project(Pc);
+    }
+
+    bool isDepthPositive() {
+        Vector3d Pc = computePc();
+        return Pc(2)>0.0;
+    }
+
+    Vector3d computePc() {
+        const VertexSBAPointXYZ* vPoint = static_cast<const VertexSBAPointXYZ*>(_vertices[0]);
+        const VertexNavStatePR* vNavState = static_cast<const VertexNavStatePR*>(_vertices[1]);
+
+        const NavState& ns = vNavState->estimate();
+        Matrix3d Rwb = ns.Get_RotMatrix();
+        Vector3d Pwb = ns.Get_P();
+        const Vector3d& Pw = vPoint->estimate();
+
+        Matrix3d Rcb = Rbc.transpose();
+        Vector3d Pc = Rcb * Rwb.transpose() * (Pw - Pwb) - Rcb * Pbc;
+
+        return Pc;
+        //Vector3d Pwc = Rwb*Pbc + Pwb;
+        //Matrix3d Rcw = (Rwb*Rbc).transpose();
+        //Vector3d Pcw = -Rcw*Pwc;
+        //Vector3d Pc = Rcw*Pw + Pcw;
+    }
+    inline Vector2d project2d(const Vector3d& v) const {
+        Vector2d res;
+        res(0) = v(0)/v(2);
+        res(1) = v(1)/v(2);
+        return res;
+    }
+    Vector2d cam_project(const Vector3d & trans_xyz) const {
+        Vector2d proj = project2d(trans_xyz);
+        Vector2d res;
+        res[0] = proj[0]*fx + cx;
+        res[1] = proj[1]*fy + cy;
+        return res;
+    }
+
+    //
+    virtual void linearizeOplus();
+
+    void SetParams(const double& fx_, const double& fy_, const double& cx_, const double& cy_,
+                   const Matrix3d& Rbc_, const Vector3d& Pbc_) {
+        fx = fx_;
+        fy = fy_;
+        cx = cx_;
+        cy = cy_;
+        Rbc = Rbc_;
+        Pbc = Pbc_;
+    }
+
+protected:
+    // Camera intrinsics
+    double fx, fy, cx, cy;
+    // Camera-IMU extrinsics
+    Matrix3d Rbc;
+    Vector3d Pbc;
+};
+
+class EdgeNavStatePRPointXYZOnlyPose : public BaseUnaryEdge<2, Vector2d, VertexNavStatePR>
+{
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+    EdgeNavStatePRPointXYZOnlyPose(){}
+
+    bool read(std::istream& is){return true;}
+
+    bool write(std::ostream& os) const{return true;}
+
+    void computeError() {
+        Vector3d Pc = computePc();
+        Vector2d obs(_measurement);
+
+        _error = obs - cam_project(Pc);
+    }
+
+    bool isDepthPositive() {
+        Vector3d Pc = computePc();
+        return Pc(2)>0.0;
+    }
+
+    Vector3d computePc() {
+        const VertexNavStatePR* vNSPR = static_cast<const VertexNavStatePR*>(_vertices[0]);
+
+        const NavState& ns = vNSPR->estimate();
+        Matrix3d Rwb = ns.Get_RotMatrix();
+        Vector3d Pwb = ns.Get_P();
+        //const Vector3d& Pw = vPoint->estimate();
+
+        Matrix3d Rcb = Rbc.transpose();
+        Vector3d Pc = Rcb * Rwb.transpose() * (Pw - Pwb) - Rcb * Pbc;
+
+        return Pc;
+        //Vector3d Pwc = Rwb*Pbc + Pwb;
+        //Matrix3d Rcw = (Rwb*Rbc).transpose();
+        //Vector3d Pcw = -Rcw*Pwc;
+        //Vector3d Pc = Rcw*Pw + Pcw;
+    }
+    inline Vector2d project2d(const Vector3d& v) const {
+        Vector2d res;
+        res(0) = v(0)/v(2);
+        res(1) = v(1)/v(2);
+        return res;
+    }
+    Vector2d cam_project(const Vector3d & trans_xyz) const {
+        Vector2d proj = project2d(trans_xyz);
+        Vector2d res;
+        res[0] = proj[0]*fx + cx;
+        res[1] = proj[1]*fy + cy;
+        return res;
+    }
+
+    //
+    virtual void linearizeOplus();
+
+    void SetParams(const double& fx_, const double& fy_, const double& cx_, const double& cy_,
+                   const Matrix3d& Rbc_, const Vector3d& Pbc_, const Vector3d& Pw_) {
+        fx = fx_;
+        fy = fy_;
+        cx = cx_;
+        cy = cy_;
+        Rbc = Rbc_;
+        Pbc = Pbc_;
+        Pw = Pw_;
+    }
+
+protected:
+    // Camera intrinsics
+    double fx, fy, cx, cy;
+    // Camera-IMU extrinsics
+    Matrix3d Rbc;
+    Vector3d Pbc;
+    // Point position in world frame
+    Vector3d Pw;
+};
+
+/*
+ * Vertex order: PR, V, Bias
+ * Error order: dP, dV, dBg, dBa
+ */
+class EdgeNavStatePriorPRVBias : public BaseMultiEdge<15, NavState>
+{
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+    EdgeNavStatePriorPRVBias() : BaseMultiEdge<15, NavState>() {resize(3);}
+
+    bool read(std::istream &is){return true;}
+
+    bool write(std::ostream &os) const{return true;}
+
+    void computeError();
+
+    virtual void linearizeOplus();
+
+};
+
+
 /**
  * @brief The VertexNavStatePVR class
  */
@@ -322,46 +650,6 @@ public:
 
     virtual void linearizeOplus();
 
-};
-
-/**
- * @brief The VertexGravityW class
- */
-class VertexGravityW : public BaseVertex<2, Vector3d>
-{
-public:
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
-    VertexGravityW();
-
-    bool read(std::istream& is){return true;}
-
-    bool write(std::ostream& os) const{return true;}
-
-    virtual void setToOriginImpl() {
-        _estimate = Vector3d(0,0,9.81);
-    }
-
-    virtual void oplusImpl(const double *update_);
-};
-
-/**
- * @brief The EdgeNavStateGw class
- */
-class EdgeNavStateGw : public BaseMultiEdge<15, IMUPreintegrator>
-{
-public:
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-
-    EdgeNavStateGw();
-
-    bool read(std::istream& is){return true;}
-
-    bool write(std::ostream& os) const{return true;}
-
-    void computeError();
-
-    virtual void linearizeOplus();
 };
 
 /**

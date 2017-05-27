@@ -157,6 +157,8 @@ private:
     std::thread* mptLoopClosing;
     std::thread* mptViewer;
 
+    std::thread* mptLocalMappingVIOInit;
+
     // Reset flag
     std::mutex mMutexReset;
     bool mbReset;

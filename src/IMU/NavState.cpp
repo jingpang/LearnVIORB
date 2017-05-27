@@ -48,10 +48,10 @@ void NavState::IncSmall(Vector15d update)
 
     // rotation matrix before update
     //Matrix3d R = Get_qR().toRotationMatrix();
-    Matrix3d R = Get_R().matrix();
+    //Matrix3d R = Get_R().matrix();
 
     // position
-    _P += R * upd_P;
+    _P += upd_P;
     // velocity
     _V += upd_V;
     // rotation
@@ -67,6 +67,20 @@ void NavState::IncSmall(Vector15d update)
 
 }
 
+
+void NavState::IncSmallPR(Vector6d dPR)
+{
+    Vector3d upd_P = dPR.segment<3>(0);
+    Vector3d upd_Phi = dPR.segment<3>(3);
+
+    _P += upd_P;
+    _R = _R * Sophus::SO3::exp(upd_Phi);
+}
+
+void NavState::IncSmallV(Vector3d dV)
+{
+    _V += dV;
+}
 
 void NavState::IncSmallPVR(Vector9d updatePVR)
 {
@@ -90,7 +104,7 @@ void NavState::IncSmallPVR(Vector9d updatePVR)
     Matrix3d R = Get_R().matrix();
 
     // position
-    _P += R * upd_P;
+    _P += upd_P;
     // velocity
     _V += upd_V;
     // rotation

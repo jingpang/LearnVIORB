@@ -235,6 +235,12 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
 
     mpLoopCloser->SetTracker(mpTracker);
     mpLoopCloser->SetLocalMapper(mpLocalMapper);
+
+    if(ConfigParam::GetRealTimeFlag())
+    {
+        //Thread for VINS initialization
+        mptLocalMappingVIOInit = new thread(&ORB_SLAM2::LocalMapping::VINSInitThread,mpLocalMapper);
+    }
 }
 
 cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timestamp)

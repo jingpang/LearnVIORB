@@ -45,6 +45,8 @@ public:
     // incremental addition, delta = [dP, dV, dPhi, dBa, dBg]
     void IncSmall(Vector15d delta);
     void IncSmallPVR(Vector9d dPVR);
+    void IncSmallPR(Vector6d dPR);
+    void IncSmallV(Vector3d dV);
     void IncSmallBias(Vector6d dBias);
 
     // normalize rotation quaternion. !!! important!!!

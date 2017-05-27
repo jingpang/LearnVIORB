@@ -24,16 +24,85 @@
 #include "Optimizer.h"
 
 #include<mutex>
-#include "IMU/configparam.h"
 #include "Converter.h"
 
 namespace ORB_SLAM2
 {
+using namespace std;
+
+//-------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------
+//-------------------------------------------------------------------------------------------
+class KeyFrameInit
+{
+public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+    double mTimeStamp;
+    KeyFrameInit* mpPrevKeyFrame;
+    cv::Mat Twc;
+    IMUPreintegrator mIMUPreInt;
+    std::vector<IMUData> mvIMUData;
+    Vector3d bg;
 
 
-//-------------------------------------------------------------------------------------------
-//-------------------------------------------------------------------------------------------
-//-------------------------------------------------------------------------------------------
+    KeyFrameInit(KeyFrame& kf):
+        mTimeStamp(kf.mTimeStamp), mpPrevKeyFrame(NULL), Twc(kf.GetPoseInverse().clone()),
+        mIMUPreInt(kf.GetIMUPreInt()), mvIMUData(kf.GetVectorIMUData()), bg(0,0,0)
+    {
+    }
+
+    void ComputePreInt(void)
+    {
+        if(mpPrevKeyFrame == NULL)
+        {
+            return;
+        }
+        else
+        {
+            // Reset pre-integrator first
+            mIMUPreInt.reset();
+
+            if(mvIMUData.empty())
+                return;
+
+            // remember to consider the gap between the last KF and the first IMU
+            {
+                const IMUData& imu = mvIMUData.front();
+                double dt = std::max(0., imu._t - mpPrevKeyFrame->mTimeStamp);
+                mIMUPreInt.update(imu._g - bg,imu._a ,dt);  // Acc bias not considered here
+            }
+            // integrate each imu
+            for(size_t i=0; i<mvIMUData.size(); i++)
+            {
+                const IMUData& imu = mvIMUData[i];
+                double nextt;
+                if(i==mvIMUData.size()-1)
+                    nextt = mTimeStamp;         // last IMU, next is this KeyFrame
+                else
+                    nextt = mvIMUData[i+1]._t;  // regular condition, next is imu data
+
+                // delta time
+                double dt = std::max(0., nextt - imu._t);
+                // update pre-integrator
+                mIMUPreInt.update(imu._g - bg,imu._a ,dt);
+            }
+        }
+    }
+
+};
+
+bool LocalMapping::GetUpdatingInitPoses(void)
+{
+    unique_lock<mutex> lock(mMutexUpdatingInitPoses);
+    return mbUpdatingInitPoses;
+}
+
+void LocalMapping::SetUpdatingInitPoses(bool flag)
+{
+    unique_lock<mutex> lock(mMutexUpdatingInitPoses);
+    mbUpdatingInitPoses = flag;
+}
 
 KeyFrame* LocalMapping::GetMapUpdateKF()
 {
@@ -86,6 +155,36 @@ cv::Mat LocalMapping::GetGravityVec()
     return mGravityVec.clone();
 }
 
+cv::Mat LocalMapping::GetRwiInit()
+{
+    return mRwiInit.clone();
+}
+
+void LocalMapping::VINSInitThread()
+{
+    unsigned long initedid = 0;
+    cerr<<"start VINSInitThread"<<endl;
+    while(1)
+    {
+        if(KeyFrame::nNextId > 2)
+            if(!GetVINSInited() && mpCurrentKeyFrame->mnId > initedid)
+            {
+                initedid = mpCurrentKeyFrame->mnId;
+
+                bool tmpbool = TryInitVIO();
+                if(tmpbool)
+                {
+                    //SetFirstVINSInited(true);
+                    //SetVINSInited(true);
+                    break;
+                }
+            }
+        usleep(3000);
+        if(isFinished())
+            break;
+    }
+}
+
 bool LocalMapping::TryInitVIO(void)
 {
     if(mpMap->KeyFramesInMap()<=mnLocalWindowSize)
@@ -93,10 +192,10 @@ bool LocalMapping::TryInitVIO(void)
 
     static bool fopened = false;
     static ofstream fgw,fscale,fbiasa,fcondnum,ftime,fbiasg;
+    string tmpfilepath = ConfigParam::getTmpFilePath();
     if(!fopened)
     {
         // Need to modify this to correct path
-        string tmpfilepath = ConfigParam::getTmpFilePath();
         fgw.open(tmpfilepath+"gw.txt");
         fscale.open(tmpfilepath+"scale.txt");
         fbiasa.open(tmpfilepath+"biasa.txt");
@@ -119,6 +218,8 @@ bool LocalMapping::TryInitVIO(void)
         fbiasg<<std::fixed<<std::setprecision(6);
     }
 
+    Optimizer::GlobalBundleAdjustemnt(mpMap, 10);
+
     // Extrinsics
     cv::Mat Tbc = ConfigParam::GetMatTbc();
     cv::Mat Rbc = Tbc.rowRange(0,3).colRange(0,3);
@@ -126,24 +227,55 @@ bool LocalMapping::TryInitVIO(void)
     cv::Mat Rcb = Rbc.t();
     cv::Mat pcb = -Rcb*pbc;
 
+    if(ConfigParam::GetRealTimeFlag())
+    {
+        // Wait KeyFrame Culling.
+        // 1. if KeyFrame Culling is running, wait until finished.
+        // 2. if KFs are being copied, then don't run KeyFrame Culling (in KeyFrameCulling function)
+        while(GetFlagCopyInitKFs())
+        {
+            usleep(1000);
+        }
+    }
+    SetFlagCopyInitKFs(true);
+
     // Use all KeyFrames in map to compute
     vector<KeyFrame*> vScaleGravityKF = mpMap->GetAllKeyFrames();
     int N = vScaleGravityKF.size();
+    KeyFrame* pNewestKF = vScaleGravityKF[N-1];
+    vector<cv::Mat> vTwc;
+    vector<IMUPreintegrator> vIMUPreInt;
+    // Store initialization-required KeyFrame data
+    vector<KeyFrameInit*> vKFInit;
+
+    for(int i=0;i<N;i++)
+    {
+        KeyFrame* pKF = vScaleGravityKF[i];
+        vTwc.push_back(pKF->GetPoseInverse());
+        vIMUPreInt.push_back(pKF->GetIMUPreInt());
+        KeyFrameInit* pkfi = new KeyFrameInit (*pKF);
+        if(i!=0)
+        {
+            pkfi->mpPrevKeyFrame = vKFInit[i-1];
+        }
+        vKFInit.push_back(pkfi);
+    }
+
+    SetFlagCopyInitKFs(false);
 
     // Step 1.
     // Try to compute initial gyro bias, using optimization with Gauss-Newton
-    Vector3d bgest = Optimizer::OptimizeInitialGyroBias(vScaleGravityKF);
+    Vector3d bgest = Optimizer::OptimizeInitialGyroBias(vTwc,vIMUPreInt);
+    //Vector3d bgest = Optimizer::OptimizeInitialGyroBias(vScaleGravityKF);
 
     // Update biasg and pre-integration in LocalWindow. Remember to reset back to zero
-    for(vector<KeyFrame*>::const_iterator vit=vScaleGravityKF.begin(), vend=vScaleGravityKF.end(); vit!=vend; vit++)
+    for(int i=0;i<N;i++)
     {
-        KeyFrame* pKF = *vit;
-        pKF->SetNavStateBiasGyr(bgest);
+        vKFInit[i]->bg = bgest;
     }
-    for(vector<KeyFrame*>::const_iterator vit=vScaleGravityKF.begin(), vend=vScaleGravityKF.end(); vit!=vend; vit++)
+    for(int i=0;i<N;i++)
     {
-        KeyFrame* pKF = *vit;
-        pKF->ComputePreInt();
+        vKFInit[i]->ComputePreInt();
     }
 
     // Solve A*x=B for x=[s,gw] 4x1 vector
@@ -155,24 +287,21 @@ bool LocalMapping::TryInitVIO(void)
     // Approx Scale and Gravity vector in 'world' frame (first KF's camera frame)
     for(int i=0; i<N-2; i++)
     {
-        KeyFrame* pKF1 = vScaleGravityKF[i];
-        KeyFrame* pKF2 = vScaleGravityKF[i+1];
-        KeyFrame* pKF3 = vScaleGravityKF[i+2];
+        //KeyFrameInit* pKF1 = vKFInit[i];//vScaleGravityKF[i];
+        KeyFrameInit* pKF2 = vKFInit[i+1];
+        KeyFrameInit* pKF3 = vKFInit[i+2];
         // Delta time between frames
-        double dt12 = pKF2->GetIMUPreInt().getDeltaTime();
-        double dt23 = pKF3->GetIMUPreInt().getDeltaTime();
+        double dt12 = pKF2->mIMUPreInt.getDeltaTime();
+        double dt23 = pKF3->mIMUPreInt.getDeltaTime();
         // Pre-integrated measurements
-        cv::Mat dp12 = Converter::toCvMat(pKF2->GetIMUPreInt().getDeltaP());
-        cv::Mat dv12 = Converter::toCvMat(pKF2->GetIMUPreInt().getDeltaV());
-        cv::Mat dp23 = Converter::toCvMat(pKF3->GetIMUPreInt().getDeltaP());
-        // Test log
-        if(dt12!=pKF2->mTimeStamp-pKF1->mTimeStamp) cerr<<"dt12!=pKF2->mTimeStamp-pKF1->mTimeStamp"<<endl;
-        if(dt23!=pKF3->mTimeStamp-pKF2->mTimeStamp) cerr<<"dt23!=pKF3->mTimeStamp-pKF2->mTimeStamp"<<endl;
+        cv::Mat dp12 = Converter::toCvMat(pKF2->mIMUPreInt.getDeltaP());
+        cv::Mat dv12 = Converter::toCvMat(pKF2->mIMUPreInt.getDeltaV());
+        cv::Mat dp23 = Converter::toCvMat(pKF3->mIMUPreInt.getDeltaP());
 
         // Pose of camera in world frame
-        cv::Mat Twc1 = pKF1->GetPoseInverse();
-        cv::Mat Twc2 = pKF2->GetPoseInverse();
-        cv::Mat Twc3 = pKF3->GetPoseInverse();
+        cv::Mat Twc1 = vTwc[i].clone();//pKF1->GetPoseInverse();
+        cv::Mat Twc2 = vTwc[i+1].clone();//pKF2->GetPoseInverse();
+        cv::Mat Twc3 = vTwc[i+2].clone();//pKF3->GetPoseInverse();
         // Position of camera center
         cv::Mat pc1 = Twc1.rowRange(0,3).col(3);
         cv::Mat pc2 = Twc2.rowRange(0,3).col(3);
@@ -263,23 +392,23 @@ bool LocalMapping::TryInitVIO(void)
 
     for(int i=0; i<N-2; i++)
     {
-        KeyFrame* pKF1 = vScaleGravityKF[i];
-        KeyFrame* pKF2 = vScaleGravityKF[i+1];
-        KeyFrame* pKF3 = vScaleGravityKF[i+2];
+        //KeyFrameInit* pKF1 = vKFInit[i];//vScaleGravityKF[i];
+        KeyFrameInit* pKF2 = vKFInit[i+1];
+        KeyFrameInit* pKF3 = vKFInit[i+2];
         // Delta time between frames
-        double dt12 = pKF2->GetIMUPreInt().getDeltaTime();
-        double dt23 = pKF3->GetIMUPreInt().getDeltaTime();
+        double dt12 = pKF2->mIMUPreInt.getDeltaTime();
+        double dt23 = pKF3->mIMUPreInt.getDeltaTime();
         // Pre-integrated measurements
-        cv::Mat dp12 = Converter::toCvMat(pKF2->GetIMUPreInt().getDeltaP());
-        cv::Mat dv12 = Converter::toCvMat(pKF2->GetIMUPreInt().getDeltaV());
-        cv::Mat dp23 = Converter::toCvMat(pKF3->GetIMUPreInt().getDeltaP());
-        cv::Mat Jpba12 = Converter::toCvMat(pKF2->GetIMUPreInt().getJPBiasa());
-        cv::Mat Jvba12 = Converter::toCvMat(pKF2->GetIMUPreInt().getJVBiasa());
-        cv::Mat Jpba23 = Converter::toCvMat(pKF3->GetIMUPreInt().getJPBiasa());
+        cv::Mat dp12 = Converter::toCvMat(pKF2->mIMUPreInt.getDeltaP());
+        cv::Mat dv12 = Converter::toCvMat(pKF2->mIMUPreInt.getDeltaV());
+        cv::Mat dp23 = Converter::toCvMat(pKF3->mIMUPreInt.getDeltaP());
+        cv::Mat Jpba12 = Converter::toCvMat(pKF2->mIMUPreInt.getJPBiasa());
+        cv::Mat Jvba12 = Converter::toCvMat(pKF2->mIMUPreInt.getJVBiasa());
+        cv::Mat Jpba23 = Converter::toCvMat(pKF3->mIMUPreInt.getJPBiasa());
         // Pose of camera in world frame
-        cv::Mat Twc1 = pKF1->GetPoseInverse();
-        cv::Mat Twc2 = pKF2->GetPoseInverse();
-        cv::Mat Twc3 = pKF3->GetPoseInverse();
+        cv::Mat Twc1 = vTwc[i].clone();//pKF1->GetPoseInverse();
+        cv::Mat Twc2 = vTwc[i+1].clone();//pKF2->GetPoseInverse();
+        cv::Mat Twc3 = vTwc[i+2].clone();//pKF3->GetPoseInverse();
         // Position of camera center
         cv::Mat pc1 = Twc1.rowRange(0,3).col(3);
         cv::Mat pc2 = Twc2.rowRange(0,3).col(3);
@@ -367,6 +496,12 @@ bool LocalMapping::TryInitVIO(void)
         //             <<(t3-t0)/cv::getTickFrequency()*1000<<" "<<endl;
         fbiasg<<mpCurrentKeyFrame->mTimeStamp<<" "
               <<bgest(0)<<" "<<bgest(1)<<" "<<bgest(2)<<" "<<endl;
+
+        ofstream fRwi(tmpfilepath+"Rwi.txt");
+        fRwi<<Rwieig_(0,0)<<" "<<Rwieig_(0,1)<<" "<<Rwieig_(0,2)<<" "
+            <<Rwieig_(1,0)<<" "<<Rwieig_(1,1)<<" "<<Rwieig_(1,2)<<" "
+            <<Rwieig_(2,0)<<" "<<Rwieig_(2,1)<<" "<<Rwieig_(2,2)<<endl;
+        fRwi.close();
     }
 
 
@@ -379,30 +514,12 @@ bool LocalMapping::TryInitVIO(void)
         mbFirstTry = false;
         mnStartTime = mpCurrentKeyFrame->mTimeStamp;
     }
-    if(mpCurrentKeyFrame->mTimeStamp - mnStartTime >= 15.0)
+    if(pNewestKF->mTimeStamp - mnStartTime >= ConfigParam::GetVINSInitTime())
     {
         bVIOInited = true;
     }
 
-    // When failed. Or when you're debugging.
-    // Reset biasg to zero, and re-compute imu-preintegrator.
-    if(!bVIOInited)
-    {
-        for(vector<KeyFrame*>::const_iterator vit=vScaleGravityKF.begin(), vend=vScaleGravityKF.end(); vit!=vend; vit++)
-        {
-            KeyFrame* pKF = *vit;
-            pKF->SetNavStateBiasGyr(Vector3d::Zero());
-            pKF->SetNavStateBiasAcc(Vector3d::Zero());
-            pKF->SetNavStateDeltaBg(Eigen::Vector3d::Zero());
-            pKF->SetNavStateDeltaBa(Eigen::Vector3d::Zero());
-        }
-        for(vector<KeyFrame*>::const_iterator vit=vScaleGravityKF.begin(), vend=vScaleGravityKF.end(); vit!=vend; vit++)
-        {
-            KeyFrame* pKF = *vit;
-            pKF->ComputePreInt();
-        }
-    }
-    else
+    if(bVIOInited)
     {
         // Set NavState , scale and bias for all KeyFrames
         // Scale
@@ -410,65 +527,340 @@ bool LocalMapping::TryInitVIO(void)
         mnVINSInitScale = s_;
         // gravity vector in world frame
         cv::Mat gw = Rwi_*GI;
-        mGravityVec = gw;
+        mGravityVec = gw.clone();
         Vector3d gweig = Converter::toVector3d(gw);
+        mRwiInit = Rwi_.clone();
 
-        for(vector<KeyFrame*>::const_iterator vit=vScaleGravityKF.begin(), vend=vScaleGravityKF.end(); vit!=vend; vit++)
+        // Update NavState for the KeyFrames not in vScaleGravityKF
+        // Update Tcw-type pose for these KeyFrames, need mutex lock
+        if(ConfigParam::GetRealTimeFlag())
         {
-            KeyFrame* pKF = *vit;
-            // Position and rotation of visual SLAM
-            cv::Mat wPc = pKF->GetPoseInverse().rowRange(0,3).col(3);                   // wPc
-            cv::Mat Rwc = pKF->GetPoseInverse().rowRange(0,3).colRange(0,3);            // Rwc
-            // Set position and rotation of navstate
-            cv::Mat wPb = scale*wPc + Rwc*pcb;
-            pKF->SetNavStatePos(Converter::toVector3d(wPb));
-            pKF->SetNavStateRot(Converter::toMatrix3d(Rwc*Rcb));
-            // Update bias of Gyr & Acc
-            pKF->SetNavStateBiasGyr(bgest);
-            pKF->SetNavStateBiasAcc(dbiasa_eig);
-            // Set delta_bias to zero. (only updated during optimization)
-            pKF->SetNavStateDeltaBg(Eigen::Vector3d::Zero());
-            pKF->SetNavStateDeltaBa(Eigen::Vector3d::Zero());
-            // Step 4.
-            // compute velocity
-            if(pKF != vScaleGravityKF.back())
-            {
-                KeyFrame* pKFnext = pKF->GetNextKeyFrame();
-                // IMU pre-int between pKF ~ pKFnext
-                const IMUPreintegrator& imupreint = pKFnext->GetIMUPreInt();
-                // Time from this(pKF) to next(pKFnext)
-                double dt = imupreint.getDeltaTime();                                       // deltaTime
-                cv::Mat dp = Converter::toCvMat(imupreint.getDeltaP());       // deltaP
-                cv::Mat Jpba = Converter::toCvMat(imupreint.getJPBiasa());    // J_deltaP_biasa
-                cv::Mat wPcnext = pKFnext->GetPoseInverse().rowRange(0,3).col(3);           // wPc next
-                cv::Mat Rwcnext = pKFnext->GetPoseInverse().rowRange(0,3).colRange(0,3);    // Rwc next
+            // Stop local mapping
+            RequestStop();
 
-                cv::Mat vel = - 1./dt*( scale*(wPc - wPcnext) + (Rwc - Rwcnext)*pcb + Rwc*Rcb*(dp + Jpba*dbiasa_) + 0.5*gw*dt*dt );
-                Eigen::Vector3d veleig = Converter::toVector3d(vel);
-                pKF->SetNavStateVel(veleig);
-            }
-            else
+            // Wait until Local Mapping has effectively stopped
+            while(!isStopped() && !isFinished())
             {
-                // If this is the last KeyFrame, no 'next' KeyFrame exists
-                KeyFrame* pKFprev = pKF->GetPrevKeyFrame();
-                const IMUPreintegrator& imupreint_prev_cur = pKF->GetIMUPreInt();
-                double dt = imupreint_prev_cur.getDeltaTime();
-                Eigen::Matrix3d Jvba = imupreint_prev_cur.getJVBiasa();
-                Eigen::Vector3d dv = imupreint_prev_cur.getDeltaV();
-                //
-                Eigen::Vector3d velpre = pKFprev->GetNavState().Get_V();
-                Eigen::Matrix3d rotpre = pKFprev->GetNavState().Get_RotMatrix();
-                Eigen::Vector3d veleig = velpre + gweig*dt + rotpre*( dv + Jvba*dbiasa_eig );
-                pKF->SetNavStateVel(veleig);
+                usleep(1000);
             }
         }
 
-        // Re-compute IMU pre-integration at last.
-        for(vector<KeyFrame*>::const_iterator vit=vScaleGravityKF.begin(), vend=vScaleGravityKF.end(); vit!=vend; vit++)
+        SetUpdatingInitPoses(true);
         {
-            KeyFrame* pKF = *vit;
-            pKF->ComputePreInt();
+            unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
+
+            int cnt=0;
+            for(vector<KeyFrame*>::const_iterator vit=vScaleGravityKF.begin(), vend=vScaleGravityKF.end(); vit!=vend; vit++,cnt++)
+            {
+                KeyFrame* pKF = *vit;
+                if(pKF->isBad()) continue;
+                if(pKF!=vScaleGravityKF[cnt]) cerr<<"pKF!=vScaleGravityKF[cnt], id: "<<pKF->mnId<<" != "<<vScaleGravityKF[cnt]->mnId<<endl;
+                // Position and rotation of visual SLAM
+                cv::Mat wPc = pKF->GetPoseInverse().rowRange(0,3).col(3);                   // wPc
+                cv::Mat Rwc = pKF->GetPoseInverse().rowRange(0,3).colRange(0,3);            // Rwc
+                // Set position and rotation of navstate
+                cv::Mat wPb = scale*wPc + Rwc*pcb;
+                pKF->SetNavStatePos(Converter::toVector3d(wPb));
+                pKF->SetNavStateRot(Converter::toMatrix3d(Rwc*Rcb));
+                // Update bias of Gyr & Acc
+                pKF->SetNavStateBiasGyr(bgest);
+                pKF->SetNavStateBiasAcc(dbiasa_eig);
+                // Set delta_bias to zero. (only updated during optimization)
+                pKF->SetNavStateDeltaBg(Eigen::Vector3d::Zero());
+                pKF->SetNavStateDeltaBa(Eigen::Vector3d::Zero());
+                // Step 4.
+                // compute velocity
+                if(pKF != vScaleGravityKF.back())
+                {
+                    KeyFrame* pKFnext = pKF->GetNextKeyFrame();
+                    if(!pKFnext) cerr<<"pKFnext is NULL, cnt="<<cnt<<", pKFnext:"<<pKFnext<<endl;
+                    if(pKFnext!=vScaleGravityKF[cnt+1]) cerr<<"pKFnext!=vScaleGravityKF[cnt+1], cnt="<<cnt<<", id: "<<pKFnext->mnId<<" != "<<vScaleGravityKF[cnt+1]->mnId<<endl;
+                    // IMU pre-int between pKF ~ pKFnext
+                    const IMUPreintegrator& imupreint = pKFnext->GetIMUPreInt();
+                    // Time from this(pKF) to next(pKFnext)
+                    double dt = imupreint.getDeltaTime();                                       // deltaTime
+                    cv::Mat dp = Converter::toCvMat(imupreint.getDeltaP());       // deltaP
+                    cv::Mat Jpba = Converter::toCvMat(imupreint.getJPBiasa());    // J_deltaP_biasa
+                    cv::Mat wPcnext = pKFnext->GetPoseInverse().rowRange(0,3).col(3);           // wPc next
+                    cv::Mat Rwcnext = pKFnext->GetPoseInverse().rowRange(0,3).colRange(0,3);    // Rwc next
+
+                    cv::Mat vel = - 1./dt*( scale*(wPc - wPcnext) + (Rwc - Rwcnext)*pcb + Rwc*Rcb*(dp + Jpba*dbiasa_) + 0.5*gw*dt*dt );
+                    Eigen::Vector3d veleig = Converter::toVector3d(vel);
+                    pKF->SetNavStateVel(veleig);
+                }
+                else
+                {
+                    cerr<<"-----------here is the last KF in vScaleGravityKF------------"<<endl;
+                    // If this is the last KeyFrame, no 'next' KeyFrame exists
+                    KeyFrame* pKFprev = pKF->GetPrevKeyFrame();
+                    if(!pKFprev) cerr<<"pKFprev is NULL, cnt="<<cnt<<endl;
+                    if(pKFprev!=vScaleGravityKF[cnt-1]) cerr<<"pKFprev!=vScaleGravityKF[cnt-1], cnt="<<cnt<<", id: "<<pKFprev->mnId<<" != "<<vScaleGravityKF[cnt-1]->mnId<<endl;
+                    const IMUPreintegrator& imupreint_prev_cur = pKF->GetIMUPreInt();
+                    double dt = imupreint_prev_cur.getDeltaTime();
+                    Eigen::Matrix3d Jvba = imupreint_prev_cur.getJVBiasa();
+                    Eigen::Vector3d dv = imupreint_prev_cur.getDeltaV();
+                    //
+                    Eigen::Vector3d velpre = pKFprev->GetNavState().Get_V();
+                    Eigen::Matrix3d rotpre = pKFprev->GetNavState().Get_RotMatrix();
+                    Eigen::Vector3d veleig = velpre + gweig*dt + rotpre*( dv + Jvba*dbiasa_eig );
+                    pKF->SetNavStateVel(veleig);
+                }
+            }
+
+            // Re-compute IMU pre-integration at last. Should after usage of pre-int measurements.
+            for(vector<KeyFrame*>::const_iterator vit=vScaleGravityKF.begin(), vend=vScaleGravityKF.end(); vit!=vend; vit++)
+            {
+                KeyFrame* pKF = *vit;
+                if(pKF->isBad()) continue;
+                pKF->ComputePreInt();
+            }
+
+            // Update poses (multiply metric scale)
+            vector<KeyFrame*> mspKeyFrames = mpMap->GetAllKeyFrames();
+            for(std::vector<KeyFrame*>::iterator sit=mspKeyFrames.begin(), send=mspKeyFrames.end(); sit!=send; sit++)
+            {
+                KeyFrame* pKF = *sit;
+                cv::Mat Tcw = pKF->GetPose();
+                cv::Mat tcw = Tcw.rowRange(0,3).col(3)*scale;
+                tcw.copyTo(Tcw.rowRange(0,3).col(3));
+                pKF->SetPose(Tcw);
+            }
+            vector<MapPoint*> mspMapPoints = mpMap->GetAllMapPoints();
+            for(std::vector<MapPoint*>::iterator sit=mspMapPoints.begin(), send=mspMapPoints.end(); sit!=send; sit++)
+            {
+                MapPoint* pMP = *sit;
+                //pMP->SetWorldPos(pMP->GetWorldPos()*scale);
+                pMP->UpdateScale(scale);
+            }
+            std::cout<<std::endl<<"... Map scale updated ..."<<std::endl<<std::endl;
+
+            // Update NavStates
+            if(pNewestKF!=mpCurrentKeyFrame)
+            {
+                KeyFrame* pKF;
+
+                // step1. bias&d_bias
+                pKF = pNewestKF;
+                do
+                {
+                    pKF = pKF->GetNextKeyFrame();
+
+                    // Update bias of Gyr & Acc
+                    pKF->SetNavStateBiasGyr(bgest);
+                    pKF->SetNavStateBiasAcc(dbiasa_eig);
+                    // Set delta_bias to zero. (only updated during optimization)
+                    pKF->SetNavStateDeltaBg(Eigen::Vector3d::Zero());
+                    pKF->SetNavStateDeltaBa(Eigen::Vector3d::Zero());
+                }while(pKF!=mpCurrentKeyFrame);
+
+                // step2. re-compute pre-integration
+                pKF = pNewestKF;
+                do
+                {
+                    pKF = pKF->GetNextKeyFrame();
+
+                    pKF->ComputePreInt();
+                }while(pKF!=mpCurrentKeyFrame);
+
+                // step3. update pos/rot
+                pKF = pNewestKF;
+                do
+                {
+                    pKF = pKF->GetNextKeyFrame();
+
+                    // Update rot/pos
+                    // Position and rotation of visual SLAM
+                    cv::Mat wPc = pKF->GetPoseInverse().rowRange(0,3).col(3);                   // wPc
+                    cv::Mat Rwc = pKF->GetPoseInverse().rowRange(0,3).colRange(0,3);            // Rwc
+                    cv::Mat wPb = wPc + Rwc*pcb;
+                    pKF->SetNavStatePos(Converter::toVector3d(wPb));
+                    pKF->SetNavStateRot(Converter::toMatrix3d(Rwc*Rcb));
+
+                    //pKF->SetNavState();
+
+                    if(pKF != mpCurrentKeyFrame)
+                    {
+                        KeyFrame* pKFnext = pKF->GetNextKeyFrame();
+                        // IMU pre-int between pKF ~ pKFnext
+                        const IMUPreintegrator& imupreint = pKFnext->GetIMUPreInt();
+                        // Time from this(pKF) to next(pKFnext)
+                        double dt = imupreint.getDeltaTime();                                       // deltaTime
+                        cv::Mat dp = Converter::toCvMat(imupreint.getDeltaP());       // deltaP
+                        cv::Mat Jpba = Converter::toCvMat(imupreint.getJPBiasa());    // J_deltaP_biasa
+                        cv::Mat wPcnext = pKFnext->GetPoseInverse().rowRange(0,3).col(3);           // wPc next
+                        cv::Mat Rwcnext = pKFnext->GetPoseInverse().rowRange(0,3).colRange(0,3);    // Rwc next
+
+                        cv::Mat vel = - 1./dt*( (wPc - wPcnext) + (Rwc - Rwcnext)*pcb + Rwc*Rcb*(dp + Jpba*dbiasa_) + 0.5*gw*dt*dt );
+                        Eigen::Vector3d veleig = Converter::toVector3d(vel);
+                        pKF->SetNavStateVel(veleig);
+                    }
+                    else
+                    {
+                        // If this is the last KeyFrame, no 'next' KeyFrame exists
+                        KeyFrame* pKFprev = pKF->GetPrevKeyFrame();
+                        const IMUPreintegrator& imupreint_prev_cur = pKF->GetIMUPreInt();
+                        double dt = imupreint_prev_cur.getDeltaTime();
+                        Eigen::Matrix3d Jvba = imupreint_prev_cur.getJVBiasa();
+                        Eigen::Vector3d dv = imupreint_prev_cur.getDeltaV();
+                        //
+                        Eigen::Vector3d velpre = pKFprev->GetNavState().Get_V();
+                        Eigen::Matrix3d rotpre = pKFprev->GetNavState().Get_RotMatrix();
+                        Eigen::Vector3d veleig = velpre + gweig*dt + rotpre*( dv + Jvba*dbiasa_eig );
+                        pKF->SetNavStateVel(veleig);
+                    }
+
+                }while(pKF!=mpCurrentKeyFrame);
+
+            }
+
+            std::cout<<std::endl<<"... Map NavState updated ..."<<std::endl<<std::endl;
+
+            SetFirstVINSInited(true);
+            SetVINSInited(true);
         }
+        SetUpdatingInitPoses(false);
+
+        if(ConfigParam::GetRealTimeFlag())
+        {
+            Release();
+        }
+
+        // Run global BA after inited
+        unsigned long nGBAKF = mpCurrentKeyFrame->mnId;
+        //Optimizer::GlobalBundleAdjustmentNavState(mpMap,mGravityVec,10,NULL,nGBAKF,false);
+        Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap,mGravityVec,10,NULL,nGBAKF,false);
+        cerr<<"finish global BA after vins init"<<endl;
+
+        if(ConfigParam::GetRealTimeFlag())
+        {
+            // Update pose
+            // Stop local mapping, and
+            RequestStop();
+
+            // Wait until Local Mapping has effectively stopped
+            while(!isStopped() && !isFinished())
+            {
+                usleep(1000);
+            }
+
+
+            cv::Mat cvTbc = ConfigParam::GetMatTbc();
+
+            {
+                unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
+
+                // Correct keyframes starting at map first keyframe
+                list<KeyFrame*> lpKFtoCheck(mpMap->mvpKeyFrameOrigins.begin(),mpMap->mvpKeyFrameOrigins.end());
+
+                while(!lpKFtoCheck.empty())
+                {
+                    KeyFrame* pKF = lpKFtoCheck.front();
+                    const set<KeyFrame*> sChilds = pKF->GetChilds();
+                    cv::Mat Twc = pKF->GetPoseInverse();
+                    const NavState& NS = pKF->GetNavState();
+                    //Debug log
+                    if(pKF->mnBAGlobalForKF==nGBAKF)
+                    {
+                        cv::Mat tTwb1 = Twc*ConfigParam::GetMatT_cb();
+                        if((Converter::toVector3d(tTwb1.rowRange(0,3).col(3))-NS.Get_P()).norm()>1e-6)
+                            cout<<"Twc*Tcb != NavState for GBA KFs, id "<<pKF->mnId<<": "<<tTwb1.rowRange(0,3).col(3).t()<<"/"<<NS.Get_P().transpose()<<endl;
+                    }
+                    else cout<<"pKF->mnBAGlobalForKF != nGBAKF???"<<endl;
+                    for(set<KeyFrame*>::const_iterator sit=sChilds.begin();sit!=sChilds.end();sit++)
+                    {
+                        KeyFrame* pChild = *sit;
+                        if(pChild->mnBAGlobalForKF!=nGBAKF)
+                        {
+                            cerr<<"correct KF after gBA in VI init: "<<pChild->mnId<<endl;
+                            cv::Mat Tchildc = pChild->GetPose()*Twc;
+                            pChild->mTcwGBA = Tchildc*pKF->mTcwGBA;//*Tcorc*pKF->mTcwGBA;
+                            pChild->mnBAGlobalForKF=nGBAKF;
+
+                            // Set NavStateGBA and correct the P/V/R
+                            pChild->mNavStateGBA = pChild->GetNavState();
+                            cv::Mat TwbGBA = Converter::toCvMatInverse(cvTbc*pChild->mTcwGBA);
+                            Matrix3d RwbGBA = Converter::toMatrix3d(TwbGBA.rowRange(0,3).colRange(0,3));
+                            Vector3d PwbGBA = Converter::toVector3d(TwbGBA.rowRange(0,3).col(3));
+                            Matrix3d Rw1 = pChild->mNavStateGBA.Get_RotMatrix();
+                            Vector3d Vw1 = pChild->mNavStateGBA.Get_V();
+                            Vector3d Vw2 = RwbGBA*Rw1.transpose()*Vw1;   // bV1 = bV2 ==> Rwb1^T*wV1 = Rwb2^T*wV2 ==> wV2 = Rwb2*Rwb1^T*wV1
+                            pChild->mNavStateGBA.Set_Pos(PwbGBA);
+                            pChild->mNavStateGBA.Set_Rot(RwbGBA);
+                            pChild->mNavStateGBA.Set_Vel(Vw2);
+                        }
+                        lpKFtoCheck.push_back(pChild);
+                    }
+
+                    pKF->mTcwBefGBA = pKF->GetPose();
+                    //pKF->SetPose(pKF->mTcwGBA);
+                    pKF->mNavStateBefGBA = pKF->GetNavState();
+                    pKF->SetNavState(pKF->mNavStateGBA);
+                    pKF->UpdatePoseFromNS(cvTbc);
+
+                    lpKFtoCheck.pop_front();
+
+                    //Test log
+                    cv::Mat tTwb = pKF->GetPoseInverse()*ConfigParam::GetMatT_cb();
+                    Vector3d tPwb = Converter::toVector3d(tTwb.rowRange(0,3).col(3));
+                    if( (tPwb-pKF->GetNavState().Get_P()).norm()>1e-6 )
+                        cerr<<"pKF PoseInverse Pwb != NavState.P ?"<<tPwb.transpose()<<"/"<<pKF->GetNavState().Get_P().transpose()<<endl;
+                }
+
+                // Correct MapPoints
+                const vector<MapPoint*> vpMPs = mpMap->GetAllMapPoints();
+
+                for(size_t i=0; i<vpMPs.size(); i++)
+                {
+                    MapPoint* pMP = vpMPs[i];
+
+                    if(pMP->isBad())
+                        continue;
+
+                    if(pMP->mnBAGlobalForKF==nGBAKF)
+                    {
+                        // If optimized by Global BA, just update
+                        pMP->SetWorldPos(pMP->mPosGBA);
+                    }
+                    else
+                    {
+                        // Update according to the correction of its reference keyframe
+                        KeyFrame* pRefKF = pMP->GetReferenceKeyFrame();
+
+                        if(pRefKF->mnBAGlobalForKF!=nGBAKF)
+                            continue;
+
+                        // Map to non-corrected camera
+                        cv::Mat Rcw = pRefKF->mTcwBefGBA.rowRange(0,3).colRange(0,3);
+                        cv::Mat tcw = pRefKF->mTcwBefGBA.rowRange(0,3).col(3);
+                        cv::Mat Xc = Rcw*pMP->GetWorldPos()+tcw;
+
+                        // Backproject using corrected camera
+                        cv::Mat Twc = pRefKF->GetPoseInverse();
+                        cv::Mat Rwc = Twc.rowRange(0,3).colRange(0,3);
+                        cv::Mat twc = Twc.rowRange(0,3).col(3);
+
+                        pMP->SetWorldPos(Rwc*Xc+twc);
+                    }
+                }
+
+                cout << "Map updated!" << endl;
+
+                // Map updated, set flag for Tracking
+                SetMapUpdateFlagInTracking(true);
+
+                // Release LocalMapping
+
+                Release();
+            }
+        }
+
+        SetFlagInitGBAFinish(true);
+    }
+
+    for(int i=0;i<N;i++)
+    {
+        if(vKFInit[i])
+            delete vKFInit[i];
     }
 
     return bVIOInited;
@@ -480,6 +872,15 @@ void LocalMapping::AddToLocalWindow(KeyFrame* pKF)
     if(mlLocalKeyFrames.size() > mnLocalWindowSize)
     {
         mlLocalKeyFrames.pop_front();
+    }
+    else
+    {
+        KeyFrame* pKF0 = mlLocalKeyFrames.front();
+        while(mlLocalKeyFrames.size() < mnLocalWindowSize && pKF0->GetPrevKeyFrame()!=NULL)
+        {
+            pKF0 = pKF0->GetPrevKeyFrame();
+            mlLocalKeyFrames.push_front(pKF0);
+        }
     }
 }
 
@@ -517,6 +918,10 @@ LocalMapping::LocalMapping(Map *pMap, const float bMonocular, ConfigParam* pPara
     mbVINSInited = false;
     mbFirstTry = true;
     mbFirstVINSInited = false;
+
+    mbUpdatingInitPoses = false;
+    mbCopyInitKFs = false;
+    mbInitGBAFinish = false;
 }
 
 void LocalMapping::SetLoopCloser(LoopClosing* pLoopCloser)
@@ -572,21 +977,26 @@ void LocalMapping::Run()
                     }
                     else
                     {
-                        Optimizer::LocalBundleAdjustmentNavState(mpCurrentKeyFrame,mlLocalKeyFrames,&mbAbortBA, mpMap, mGravityVec, this);
+                        //Optimizer::LocalBundleAdjustmentNavStatePRV(mpCurrentKeyFrame,mlLocalKeyFrames,&mbAbortBA, mpMap, mGravityVec, this);
+                        Optimizer::LocalBAPRVIDP(mpCurrentKeyFrame,mlLocalKeyFrames,&mbAbortBA, mpMap, mGravityVec, this);
                     }
                 }
 
-                // Try to initialize VIO, if not inited
-                if(!GetVINSInited())
+                // Visual-Inertial initialization for non-realtime mode
+                if(!ConfigParam::GetRealTimeFlag())
                 {
-                    bool tmpbool = TryInitVIO();
-                    SetVINSInited(tmpbool);
-                    if(tmpbool)
+                    // Try to initialize VIO, if not inited
+                    if(!GetVINSInited())
                     {
-                        // Update map scale
-                        mpMap->UpdateScale(mnVINSInitScale);
-                        // Set initialization flag
-                        SetFirstVINSInited(true);
+                        bool tmpbool = TryInitVIO();
+                        SetVINSInited(tmpbool);
+                        if(tmpbool)
+                        {
+                            // Update map scale
+                            mpMap->UpdateScale(mnVINSInitScale);
+                            // Set initialization flag
+                            SetFirstVINSInited(true);
+                        }
                     }
                 }
 
@@ -595,7 +1005,8 @@ void LocalMapping::Run()
                 KeyFrameCulling();
             }
 
-            mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
+            if(GetFlagInitGBAFinish())
+                mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
         }
         else if(Stop())
         {
@@ -1147,6 +1558,14 @@ void LocalMapping::InterruptBA()
 
 void LocalMapping::KeyFrameCulling()
 {
+
+    if(ConfigParam::GetRealTimeFlag())
+    {
+        if(GetFlagCopyInitKFs())
+            return;
+    }
+    SetFlagCopyInitKFs(true);
+
     // Check redundant keyframes (only local keyframes)
     // A keyframe is considered redundant if the 90% of the MapPoints it sees, are seen
     // in at least other 3 keyframes (in the same or finer scale)
@@ -1176,30 +1595,26 @@ void LocalMapping::KeyFrameCulling()
         // Note, the KF just out of Local is similarly considered as Local
         KeyFrame* pPrevKF = pKF->GetPrevKeyFrame();
         KeyFrame* pNextKF = pKF->GetNextKeyFrame();
+        if(pPrevKF && pNextKF && !GetVINSInited())
+        {
+            if(fabs(pNextKF->mTimeStamp - pPrevKF->mTimeStamp) > /*0.2*/0.5)
+                continue;
+        }
+        // Don't drop the KF before current KF
+        if(pKF->GetNextKeyFrame() == mpCurrentKeyFrame)
+            continue;
+        if(pKF->mTimeStamp >= mpCurrentKeyFrame->mTimeStamp - 0.11)
+            continue;
+
         if(pPrevKF && pNextKF)
         {
-            double timegap=0.5;
-            if(GetVINSInited())
-                timegap = 3;
+            double timegap=0.51;
+            if(GetVINSInited() && pKF->mTimeStamp < mpCurrentKeyFrame->mTimeStamp - 4.0)
+                timegap = 3.01;
 
-            // Test log
-            if(pOldestLocalKF->isBad()) cerr<<"pOldestLocalKF is bad, check 1. id: "<<pOldestLocalKF->mnId<<endl;
-            if(pPrevLocalKF) if(pPrevLocalKF->isBad()) cerr<<"pPrevLocalKF is bad, check 1. id: "<<pPrevLocalKF->mnId<<endl;
-            if(pNewestLocalKF->isBad()) cerr<<"pNewestLocalKF is bad, check 1. id: "<<pNewestLocalKF->mnId<<endl;
-
-            if(pKF->mnId >= pOldestLocalKF->mnId)
-            {
-                timegap = 0.1;    // third tested, good
-                if(GetVINSInited())
-                    timegap = 0.5;
-                // Test log
-                if(pKF->mnId >= pNewestLocalKF->mnId)
-                    cerr<<"Want to cull Newer KF than LocalWindow? id/currentKFid:"<<pKF->mnId<<"/"<<mpCurrentKeyFrame->mnId<<endl;
-            }
             if(fabs(pNextKF->mTimeStamp - pPrevKF->mTimeStamp) > timegap)
                 continue;
         }
-
 
         const vector<MapPoint*> vpMapPoints = pKF->GetMapPointMatches();
 
@@ -1224,9 +1639,9 @@ void LocalMapping::KeyFrameCulling()
                     if(pMP->Observations()>thObs)
                     {
                         const int &scaleLevel = pKF->mvKeysUn[i].octave;
-                        const map<KeyFrame*, size_t> observations = pMP->GetObservations();
+                        const mapMapPointObs/*map<KeyFrame*, size_t>*/ observations = pMP->GetObservations();
                         int nObs=0;
-                        for(map<KeyFrame*, size_t>::const_iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
+                        for(mapMapPointObs/*map<KeyFrame*, size_t>*/::const_iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
                         {
                             KeyFrame* pKFi = mit->first;
                             if(pKFi==pKF)
@@ -1252,6 +1667,8 @@ void LocalMapping::KeyFrameCulling()
         if(nRedundantObservations>0.9*nMPs)
             pKF->SetBadFlag();
     }
+
+    SetFlagCopyInitKFs(false);
 }
 
 cv::Mat LocalMapping::SkewSymmetricMatrix(const cv::Mat &v)

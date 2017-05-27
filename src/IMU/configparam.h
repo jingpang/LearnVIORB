@@ -33,6 +33,9 @@ public:
     static std::string getTmpFilePath();
     static std::string _tmpFilePath;
 
+    static double GetVINSInitTime(){return _nVINSInitTime;}
+    static bool GetRealTimeFlag() {return _bRealTime;}
+
 private:
     static Eigen::Matrix4d _EigTbc;
     static cv::Mat _MatTbc;
@@ -43,7 +46,8 @@ private:
     static bool _bAccMultiply9p8;
 
     static double _g;
-
+    static double _nVINSInitTime;
+    static bool _bRealTime;
 };
 
 }

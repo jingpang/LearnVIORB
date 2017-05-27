@@ -431,6 +431,7 @@ void LoopClosing::CorrectLoop()
     // If a Global Bundle Adjustment is running, abort it
     if(isRunningGBA())
     {
+        cout<<"Abort last global BA..."<<endl;
         unique_lock<mutex> lock(mMutexGBA);
         mbStopGBA = true;
 
@@ -441,6 +442,7 @@ void LoopClosing::CorrectLoop()
             mpThreadGBA->detach();
             delete mpThreadGBA;
         }
+        cout<<"Last global BA aborted."<<endl;
     }
 
     // Wait until Local Mapping has effectively stopped
@@ -668,11 +670,12 @@ void LoopClosing::ResetIfRequested()
 
 void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
 {
+    std::chrono::steady_clock::time_point begin= std::chrono::steady_clock::now();
     cout << "Starting Global Bundle Adjustment" << endl;
 
     int idx =  mnFullBAIdx;
     //Optimizer::GlobalBundleAdjustemnt(mpMap,10,&mbStopGBA,nLoopKF,false);
-    Optimizer::GlobalBundleAdjustmentNavState(mpMap,mpLocalMapper->GetGravityVec(),10,&mbStopGBA,nLoopKF,false);
+    Optimizer::GlobalBundleAdjustmentNavStatePRV(mpMap,mpLocalMapper->GetGravityVec(),10,&mbStopGBA,nLoopKF,false);
 
     // Update all MapPoints and KeyFrames
     // Local Mapping was active during BA, that means that there might be new keyframes
@@ -789,6 +792,9 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
         mbFinishedGBA = true;
         mbRunningGBA = false;
     }
+
+    std::chrono::steady_clock::time_point end= std::chrono::steady_clock::now();
+    std::cout << "globalBA Time consumption = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() <<std::endl;
 }
 
 void LoopClosing::RequestFinish()

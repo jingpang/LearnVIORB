@@ -228,7 +228,7 @@ void KeyFrame::ComputePreInt(void)
             // Test log
             if(dt < 0)
             {
-                cerr<<std::fixed<<std::setprecision(3)<<"dt = "<<dt<<", this KF vs last imu time: "<<mTimeStamp<<" vs "<<imu._t<<endl;
+                cerr<<std::fixed<<std::setprecision(3)<<"1 dt = "<<dt<<", prev KF vs last imu time: "<<mpPrevKeyFrame->mTimeStamp<<" vs "<<imu._t<<endl;
                 std::cerr.unsetf ( std::ios::showbase );                // deactivate showbase
             }
             // Debug log
@@ -600,9 +600,9 @@ void KeyFrame::UpdateConnections()
         if(pMP->isBad())
             continue;
 
-        map<KeyFrame*,size_t> observations = pMP->GetObservations();
+        mapMapPointObs/*map<KeyFrame*,size_t>*/ observations = pMP->GetObservations();
 
-        for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
+        for(mapMapPointObs/*map<KeyFrame*,size_t>*/::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
         {
             if(mit->first->mnId==mnId)
                 continue;
@@ -754,7 +754,7 @@ void KeyFrame::SetBadFlag()
             mpMap->EraseKeyFrame(this);
         }
         mpKeyFrameDB->erase(this);
-        //cerr<<"KeyFrame "<<mnId<<" is already bad. Set bad return"<<endl;
+        cerr<<"KeyFrame "<<mnId<<" is already bad. Set bad return"<<endl;
         return;
     }
 

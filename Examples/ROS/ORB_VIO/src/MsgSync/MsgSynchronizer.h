@@ -6,6 +6,7 @@
 #include <queue>
 #include <nav_msgs/Odometry.h>
 #include <sensor_msgs/Imu.h>
+#include <mutex>
 
 using namespace std;
 
@@ -43,7 +44,9 @@ public:
 
 private:
     double _imageMsgDelaySec;  // image message delay to imu message, in seconds
+    std::mutex _mutexImageQueue;
     std::queue<sensor_msgs::ImageConstPtr> _imageMsgQueue;
+    std::mutex _mutexIMUQueue;
     std::queue<sensor_msgs::ImuConstPtr> _imuMsgQueue;
     ros::Time _imuMsgTimeStart;
     Status _status;

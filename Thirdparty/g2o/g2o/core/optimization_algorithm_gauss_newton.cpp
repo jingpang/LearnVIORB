@@ -60,7 +60,10 @@ namespace g2o {
     if (globalStats) {
       globalStats->timeResiduals = get_monotonic_time()-t;
     }
-    
+    // ADD BY wangjing
+    double preChi2 = _optimizer->activeRobustChi2();
+    // END ADD
+
     if (iteration == 0 && !online) { // built up the CCS structure, here due to easy time measure
       ok = _solver->buildStructure();
       if (! ok) {
@@ -86,6 +89,15 @@ namespace g2o {
     if (globalStats) {
       globalStats->timeUpdate = get_monotonic_time()-t;
     }
+
+    // ADD BY wangjing
+    _optimizer->computeActiveErrors();
+    double afterChi2 = _optimizer->activeRobustChi2();
+
+    if(fabs(preChi2 - afterChi2)<1e-6)
+      return Terminate;
+    // END ADD
+
     if (ok)
       return OK;
     else

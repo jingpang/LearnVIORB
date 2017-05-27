@@ -281,7 +281,7 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated)
     if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && mnMatchesInliers<50)
         return false;
 
-    if(mnMatchesInliers<30)
+    if(mnMatchesInliers<6/*30*/)
         return false;
     else
         return true;
@@ -354,7 +354,7 @@ bool Tracking::TrackWithIMU(bool bMapUpdated)
         nmatches = matcher.SearchByProjection(mCurrentFrame,mLastFrame,2*th,mSensor==System::MONOCULAR);
     }
 
-    if(nmatches<20)
+    if(nmatches</*20*/10)
         return false;
 
 
@@ -396,7 +396,7 @@ bool Tracking::TrackWithIMU(bool bMapUpdated)
         return nmatches>20;
     }
 
-    return nmatchesMap>=10;
+    return nmatchesMap>=/*10*/6;
 }
 
 
@@ -1494,6 +1494,13 @@ bool Tracking::NeedNewKeyFrame()
     if(mbOnlyTracking)
         return false;
 
+    // While updating initial poses
+    if(mpLocalMapper->GetUpdatingInitPoses())
+    {
+        cerr<<"mpLocalMapper->GetUpdatingInitPoses, no new KF"<<endl;
+        return false;
+    }
+
     // If Local Mapping is freezed by a Loop Closure do not insert keyframes
     if(mpLocalMapper->isStopped() || mpLocalMapper->stopRequested())
         return false;
@@ -1546,12 +1553,13 @@ bool Tracking::NeedNewKeyFrame()
 
     double timegap = 0.1;
     if(mpLocalMapper->GetVINSInited())
-        timegap = 0.4;
+        timegap = 0.5;
     //const bool cTimeGap = (fabs(mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp)>=0.3 && mnMatchesInliers>15);
-    const bool cTimeGap = (fabs(mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp)>=timegap && mnMatchesInliers>15);
+    const bool cTimeGap = ((mCurrentFrame.mTimeStamp - mpLastKeyFrame->mTimeStamp)>=timegap) && bLocalMappingIdle && mnMatchesInliers>15;
 
     // Condition 1a: More than "MaxFrames" have passed from last keyframe insertion
-    const bool c1a = mCurrentFrame.mnId>=mnLastKeyFrameId+mMaxFrames;
+    //const bool c1a = mCurrentFrame.mnId>=mnLastKeyFrameId+mMaxFrames;
+    const bool c1a = mCurrentFrame.mTimeStamp>=mpLastKeyFrame->mTimeStamp+3.0;
     // Condition 1b: More than "MinFrames" have passed and Local Mapping is idle
     const bool c1b = (mCurrentFrame.mnId>=mnLastKeyFrameId+mMinFrames && bLocalMappingIdle);
     //Condition 1c: tracking is weak
@@ -1774,8 +1782,8 @@ void Tracking::UpdateLocalKeyFrames()
             MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
             if(!pMP->isBad())
             {
-                const map<KeyFrame*,size_t> observations = pMP->GetObservations();
-                for(map<KeyFrame*,size_t>::const_iterator it=observations.begin(), itend=observations.end(); it!=itend; it++)
+                const mapMapPointObs/*map<KeyFrame*,size_t>*/ observations = pMP->GetObservations();
+                for(mapMapPointObs/*map<KeyFrame*,size_t>*/::const_iterator it=observations.begin(), itend=observations.end(); it!=itend; it++)
                     keyframeCounter[it->first]++;
             }
             else
