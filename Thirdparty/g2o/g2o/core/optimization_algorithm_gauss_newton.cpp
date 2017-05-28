@@ -94,7 +94,7 @@ namespace g2o {
     _optimizer->computeActiveErrors();
     double afterChi2 = _optimizer->activeRobustChi2();
 
-    if(fabs(preChi2 - afterChi2)<1e-6)
+    if(fabs(preChi2 - afterChi2)<1e-3/*1e-6*/)
       return Terminate;
     // END ADD
 
