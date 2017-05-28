@@ -236,7 +236,7 @@ bool Tracking::TrackLocalMapWithIMU(bool bMapUpdated)
         IMUPreintegrator imupreint = GetIMUPreIntSinceLastKF(&mCurrentFrame, mpLastKeyFrame, mvIMUSinceLastKF);
 
         // Test log
-        if(mpLocalMapper->GetFirstVINSInited() && !bMapUpdated) cerr<<"1-FirstVinsInit, but not bMapUpdated. shouldn't"<<endl;
+        //if(mpLocalMapper->GetFirstVINSInited() && !bMapUpdated) cerr<<"1-FirstVinsInit, but not bMapUpdated. shouldn't"<<endl;
         if(mCurrentFrame.GetNavState().Get_dBias_Acc().norm() > 1e-6) cerr<<"TrackLocalMapWithIMU current Frame dBias acc not zero"<<endl;
         if(mCurrentFrame.GetNavState().Get_dBias_Gyr().norm() > 1e-6) cerr<<"TrackLocalMapWithIMU current Frame dBias gyr not zero"<<endl;
 
@@ -294,7 +294,7 @@ void Tracking::PredictNavStateByIMU(bool bMapUpdated)
     // Map updated, optimize with last KeyFrame
     if(mpLocalMapper->GetFirstVINSInited() || bMapUpdated)
     {
-        if(mpLocalMapper->GetFirstVINSInited() && !bMapUpdated) cerr<<"2-FirstVinsInit, but not bMapUpdated. shouldn't"<<endl;
+        //if(mpLocalMapper->GetFirstVINSInited() && !bMapUpdated) cerr<<"2-FirstVinsInit, but not bMapUpdated. shouldn't"<<endl;
 
         // Compute IMU Pre-integration
         mIMUPreIntInTrack = GetIMUPreIntSinceLastKF(&mCurrentFrame, mpLastKeyFrame, mvIMUSinceLastKF);

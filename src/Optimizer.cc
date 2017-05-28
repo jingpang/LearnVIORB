@@ -592,7 +592,7 @@ void Optimizer::LocalBAPRVIDP(KeyFrame *pCurKF, const std::list<KeyFrame*> &lLoc
         Vector3d Pref;
         Pref << refXY[0], refXY[1], 1.0;
         double rho = vPoint->estimate();
-        if(rho<1e-4) {cerr<<"rho="<<rho<<". ";rho = 1e-4;}
+        //if(rho<1e-4) {cerr<<"rho="<<rho<<". ";rho = 1e-4;}
 
         Pref *= 1.0/rho;    // point coordinate in reference frame
 

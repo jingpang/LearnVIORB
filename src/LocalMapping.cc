@@ -757,15 +757,6 @@ bool LocalMapping::TryInitVIO(void)
                     KeyFrame* pKF = lpKFtoCheck.front();
                     const set<KeyFrame*> sChilds = pKF->GetChilds();
                     cv::Mat Twc = pKF->GetPoseInverse();
-                    const NavState& NS = pKF->GetNavState();
-                    //Debug log
-                    if(pKF->mnBAGlobalForKF==nGBAKF)
-                    {
-                        cv::Mat tTwb1 = Twc*ConfigParam::GetMatT_cb();
-                        if((Converter::toVector3d(tTwb1.rowRange(0,3).col(3))-NS.Get_P()).norm()>1e-6)
-                            cout<<"Twc*Tcb != NavState for GBA KFs, id "<<pKF->mnId<<": "<<tTwb1.rowRange(0,3).col(3).t()<<"/"<<NS.Get_P().transpose()<<endl;
-                    }
-                    else cout<<"pKF->mnBAGlobalForKF != nGBAKF???"<<endl;
                     for(set<KeyFrame*>::const_iterator sit=sChilds.begin();sit!=sChilds.end();sit++)
                     {
                         KeyFrame* pChild = *sit;
@@ -799,11 +790,6 @@ bool LocalMapping::TryInitVIO(void)
 
                     lpKFtoCheck.pop_front();
 
-                    //Test log
-                    cv::Mat tTwb = pKF->GetPoseInverse()*ConfigParam::GetMatT_cb();
-                    Vector3d tPwb = Converter::toVector3d(tTwb.rowRange(0,3).col(3));
-                    if( (tPwb-pKF->GetNavState().Get_P()).norm()>1e-6 )
-                        cerr<<"pKF PoseInverse Pwb != NavState.P ?"<<tPwb.transpose()<<"/"<<pKF->GetNavState().Get_P().transpose()<<endl;
                 }
 
                 // Correct MapPoints
