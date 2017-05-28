@@ -22,21 +22,21 @@ plt.savefig(filepath+'Pw.eps', format="eps");
 
 bg = NS[:,11:14];
 ba = NS[:,14:17];
-dbg = NS[:,17:20];
-dba = NS[:,20:23];
+#dbg = NS[:,17:20];
+#dba = NS[:,20:23];
 
 fig2 = plt.figure(2);
-p21, =plt.plot(time-time[0],(bg+dbg)[:,0]);
-p22, =plt.plot(time-time[0],(bg+dbg)[:,1]);
-p23, =plt.plot(time-time[0],(bg+dbg)[:,2]);
+p21, =plt.plot(time-time[0],(bg)[:,0]);
+p22, =plt.plot(time-time[0],(bg)[:,1]);
+p23, =plt.plot(time-time[0],(bg)[:,2]);
 plt.legend([p21,p22,p23],["bgx","bgy","bgz"]);
 plt.title('gyr bias');
 plt.savefig(filepath+'biasgyr.eps', format="eps");
 
 fig3 = plt.figure(3);
-p31, =plt.plot(time-time[0],(ba+dba)[:,0]);
-p32, =plt.plot(time-time[0],(ba+dba)[:,1]);
-p33, =plt.plot(time-time[0],(ba+dba)[:,2]);
+p31, =plt.plot(time-time[0],(ba)[:,0]);
+p32, =plt.plot(time-time[0],(ba)[:,1]);
+p33, =plt.plot(time-time[0],(ba)[:,2]);
 plt.legend([p31,p32,p33],["bax","bay","baz"]);
 plt.title('acc bias');
 plt.savefig(filepath+'biasacc.eps', format="eps");
