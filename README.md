@@ -1,4 +1,4 @@
-Realtime branch. Outdoor test video on [Youtube (real-time)](https://youtu.be/_IuTsZrurBM)
+Realtime branch. 
 
 Modification: 
 1. Add real-time code. 
