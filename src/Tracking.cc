@@ -70,7 +70,7 @@ void Tracking::RecomputeIMUBiasAndCurrentNavstate(NavState& nscur)
         frame.SetNavStateBiasGyr(bg);
     }
     // Re-compute IMU pre-integration
-    vector<IMUPreintegrator> v19IMUPreint;
+    IMUPreintegrator::vector_t v19IMUPreint;
     v19IMUPreint.reserve(20-1);
     for(size_t i=0; i<N; i++)
     {
@@ -400,7 +400,7 @@ bool Tracking::TrackWithIMU(bool bMapUpdated)
 }
 
 
-IMUPreintegrator Tracking::GetIMUPreIntSinceLastKF(Frame* pCurF, KeyFrame* pLastKF, const std::vector<IMUData>& vIMUSInceLastKF)
+IMUPreintegrator Tracking::GetIMUPreIntSinceLastKF(Frame* pCurF, KeyFrame* pLastKF, const IMUData::vector_t& vIMUSInceLastKF)
 {
     // Reset pre-integrator first
     IMUPreintegrator IMUPreInt;
@@ -461,7 +461,7 @@ IMUPreintegrator Tracking::GetIMUPreIntSinceLastFrame(Frame* pCurF, Frame* pLast
 }
 
 
-cv::Mat Tracking::GrabImageMonoVI(const cv::Mat &im, const std::vector<IMUData> &vimu, const double &timestamp)
+cv::Mat Tracking::GrabImageMonoVI(const cv::Mat &im, const IMUData::vector_t &vimu, const double &timestamp)
 {
     mvIMUSinceLastKF.insert(mvIMUSinceLastKF.end(), vimu.begin(),vimu.end());
     mImGray = im;
@@ -1138,7 +1138,7 @@ void Tracking::MonocularInitialization()
 void Tracking::CreateInitialMapMonocular()
 {
     // The first imu package include 2 parts for KF1 and KF2
-    vector<IMUData> vimu1,vimu2;
+    IMUData::vector_t vimu1,vimu2;
     for(size_t i=0; i<mvIMUSinceLastKF.size(); i++)
     {
         IMUData imu = mvIMUSinceLastKF[i];

@@ -43,7 +43,7 @@ void Frame::ComputeIMUPreIntSinceLastFrame(const Frame* pLastF, IMUPreintegrator
     // Reset pre-integrator first
     IMUPreInt.reset();
 
-    const std::vector<IMUData>& vIMUSInceLastFrame = mvIMUDataSinceLastFrame;
+    const IMUData::vector_t& vIMUSInceLastFrame = mvIMUDataSinceLastFrame;
 
     Vector3d bg = pLastF->GetNavState().Get_BiasGyr();
     Vector3d ba = pLastF->GetNavState().Get_BiasAcc();
@@ -140,7 +140,7 @@ void Frame::SetNavState(const NavState& ns)
     mNavState = ns;
 }
 
-Frame::Frame(const cv::Mat &imGray, const double &timeStamp, const std::vector<IMUData> &vimu, ORBextractor* extractor,ORBVocabulary* voc,
+Frame::Frame(const cv::Mat &imGray, const double &timeStamp, const IMUData::vector_t &vimu, ORBextractor* extractor,ORBVocabulary* voc,
              cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth, KeyFrame* pLastKF)
     :mpORBvocabulary(voc),mpORBextractorLeft(extractor),mpORBextractorRight(static_cast<ORBextractor*>(NULL)),
      mTimeStamp(timeStamp), mK(K.clone()),mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth)

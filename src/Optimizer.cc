@@ -2779,7 +2779,7 @@ void Optimizer::LocalBundleAdjustmentNavState(KeyFrame *pCurKF, const std::list<
 
 }
 
-Vector3d Optimizer::OptimizeInitialGyroBias(const std::vector<Frame> &vFrames)
+Vector3d Optimizer::OptimizeInitialGyroBias(const std::vector<Frame, Eigen::aligned_allocator<Frame> > &vFrames)
 {
     //size_t N = vpKFs.size();
     Matrix4d Tbc = ConfigParam::GetEigTbc();
@@ -2918,7 +2918,7 @@ Vector3d Optimizer::OptimizeInitialGyroBias(const std::vector<KeyFrame *> &vpKFs
     return vBgEst->estimate();
 }
 
-Vector3d Optimizer::OptimizeInitialGyroBias(const vector<cv::Mat>& vTwc, const vector<IMUPreintegrator>& vImuPreInt)
+Vector3d Optimizer::OptimizeInitialGyroBias(const vector<cv::Mat>& vTwc, const IMUPreintegrator::vector_t& vImuPreInt)
 {
     int N = vTwc.size(); if(vTwc.size()!=vImuPreInt.size()) cerr<<"vTwc.size()!=vImuPreInt.size()"<<endl;
     Matrix4d Tbc = ConfigParam::GetEigTbc();

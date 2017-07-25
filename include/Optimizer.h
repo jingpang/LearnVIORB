@@ -27,6 +27,8 @@
 #include "LoopClosing.h"
 #include "Frame.h"
 
+#include <Eigen/StdVector>
+
 #include "Thirdparty/g2o/g2o/types/types_seven_dof_expmap.h"
 
 namespace ORB_SLAM2
@@ -51,8 +53,8 @@ public:
 
     Vector3d static OptimizeInitialGyroBias(const std::list<KeyFrame*> &lLocalKeyFrames);
     Vector3d static OptimizeInitialGyroBias(const std::vector<KeyFrame*> &vLocalKeyFrames);
-    Vector3d static OptimizeInitialGyroBias(const std::vector<Frame> &vFrames);
-    Vector3d static OptimizeInitialGyroBias(const vector<cv::Mat>& vTwc, const vector<IMUPreintegrator>& vImuPreInt);
+    Vector3d static OptimizeInitialGyroBias(const std::vector<Frame, Eigen::aligned_allocator<Frame> > &vFrames);
+    Vector3d static OptimizeInitialGyroBias(const vector<cv::Mat>& vTwc, const IMUPreintegrator::vector_t& vImuPreInt);
 
     void static LocalBundleAdjustment(KeyFrame *pKF, const std::list<KeyFrame*> &lLocalKeyFrames, bool* pbStopFlag, Map* pMap, LocalMapping* pLM=NULL);
 

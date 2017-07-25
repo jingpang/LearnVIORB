@@ -26,6 +26,8 @@
 #include<mutex>
 #include "Converter.h"
 
+#include <Eigen/StdVector>
+
 namespace ORB_SLAM2
 {
 using namespace std;
@@ -42,7 +44,7 @@ public:
     KeyFrameInit* mpPrevKeyFrame;
     cv::Mat Twc;
     IMUPreintegrator mIMUPreInt;
-    std::vector<IMUData> mvIMUData;
+    IMUData::vector_t mvIMUData;
     Vector3d bg;
 
 
@@ -244,7 +246,7 @@ bool LocalMapping::TryInitVIO(void)
     int N = vScaleGravityKF.size();
     KeyFrame* pNewestKF = vScaleGravityKF[N-1];
     vector<cv::Mat> vTwc;
-    vector<IMUPreintegrator> vIMUPreInt;
+    IMUPreintegrator::vector_t vIMUPreInt;
     // Store initialization-required KeyFrame data
     vector<KeyFrameInit*> vKFInit;
 

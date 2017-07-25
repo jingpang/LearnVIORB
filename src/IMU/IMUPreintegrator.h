@@ -2,6 +2,7 @@
 #define TVISLAM_IMUPREINTEGRATOR_H
 
 #include <Eigen/Dense>
+#include <Eigen/StdVector>
 
 #include "IMU/imudata.h"
 #include "so3.h"
@@ -18,6 +19,7 @@ class IMUPreintegrator
 {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    typedef std::vector<IMUPreintegrator, Eigen::aligned_allocator<IMUPreintegrator> > vector_t;
 
     IMUPreintegrator();
     IMUPreintegrator(const IMUPreintegrator& pre);
