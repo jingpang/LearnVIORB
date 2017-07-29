@@ -1,0 +1,3 @@
+#!/bin/bash
+
+/bin/bash -c "source /opt/ros/$ROS_DISTRO/setup.bash ; export ROS_PACKAGE_PATH=/opt/ros/indigo/share:/opt/ros/indigo/stacks:/home/${DOCKER_USER}/LearnVIORB/VIORB/Examples/ROS/ORB_VIO; sleep 3; rosbag play V1_01_easy.bag"
