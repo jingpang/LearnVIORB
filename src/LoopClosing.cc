@@ -591,6 +591,7 @@ void LoopClosing::CorrectLoop()
 
     // Map updated, set flag for Tracking
     SetMapUpdateFlagInTracking(true);
+    mpMap->InformNewBigChange();
 
     // Add loop edge
     mpMatchedKF->AddLoopEdge(mpCurrentKF);
@@ -780,6 +781,8 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
                     pMP->SetWorldPos(Rwc*Xc+twc);
                 }
             }
+
+            mpMap->InformNewBigChange();
 
             mpLocalMapper->Release();
 
